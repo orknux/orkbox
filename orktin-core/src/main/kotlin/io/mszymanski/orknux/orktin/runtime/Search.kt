@@ -25,7 +25,10 @@ object Search {
         if (request.contextLines > 0) { add("--context"); add(request.contextLines.toString()) }
         request.glob?.let { add("--glob"); add(it) }
         add("--"); add(request.pattern)
-        if (path.isNotEmpty()) add(path)
+        // Always a path: given none, rg searches stdin whenever stdin is not a
+        // terminal - which under `docker exec` and a ProcessBuilder it never is -
+        // so a search from the workspace root found nothing at all.
+        add(path.ifEmpty { "." })
     }
 
     /** Parses `rg --json` output; exit code 1 means no matches, 2 an error. */

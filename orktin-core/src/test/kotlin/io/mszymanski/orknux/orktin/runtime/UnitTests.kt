@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.orktin.runtime
 
 import io.mszymanski.orknux.orktin.ApiException
+import io.mszymanski.orknux.orktin.model.SearchRequest
 import io.mszymanski.orknux.orktin.session.FileService
 import io.mszymanski.orknux.orktin.session.OutputBuffer
 import kotlin.test.Test
@@ -8,6 +9,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+
+class RipgrepArgsTest {
+    @Test
+    fun `a search from the workspace root names the root rather than reading stdin`() {
+        assertEquals(".", Search.ripgrepArgs(SearchRequest(pattern = "needle"), "").last())
+        assertEquals("src", Search.ripgrepArgs(SearchRequest(pattern = "needle"), "src").last())
+    }
+}
 
 class WorkspacePathTest {
     @Test
