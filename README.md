@@ -3,7 +3,9 @@
 A sandbox service that gives coding agents a place to work. It is the companion
 project to [orknux-server](https://github.com/michjak-szymanski/orknux-server).
 
-orknux-codebox exposes an HTTP **Session API**. A session is an isolated
+orknux-codebox exposes an HTTP **Session API**, and the same functionality as
+a library that can be embedded in-process (orknux-server does this for local
+coding). A session is an isolated
 workspace: a filesystem plus a way to run commands in it. A caller creates a
 session, reads and writes files, executes commands (`mvn test`, `npm run build`,
 `make`, ...), reads their output and logs, and tears the session down when done.
@@ -16,23 +18,27 @@ do is orknux-server's job; orknux-codebox only provides the *environment* in
 which an agent's actions are carried out.
 
 ```
- orknux-server                          orknux-codebox
-┌──────────────────────────┐   HTTP    ┌───────────────────────────┐
-│ agents, LLM providers,   │ ────────▶ │ sessions: files, commands │
-│ workflows, credentials   │  Session  │ logs, lifecycle           │
-└──────────────────────────┘    API    └─────────────┬─────────────┘
-                                                     │
-                                       ┌─────────────┴─────────────┐
-                                       ▼                           ▼
-                               ephemeral container           local system
-                                  (Docker)                  (trusted, dev)
+ orknux-server                   HTTP Session API     orknux-codebox
+┌──────────────────────────┐   or embedded    ┌───────────────────────────┐
+│ agents, LLM providers,   │ ───────────────▶ │ sessions: files, commands │
+│ workflows, credentials   │  (codebox-core)  │ logs, lifecycle           │
+└──────────────────────────┘                  └─────────────┬─────────────┘
+                                                            │
+                                              ┌─────────────┴─────────────┐
+                                              ▼                           ▼
+                                      ephemeral container           local system
+                                         (Docker)                  (trusted, dev)
 ```
 
 ## Goals
 
 - **Session API over HTTP** — create a session, inspect it, read its logs,
   execute commands in it, work with its files, and delete it. The full API is
-  proposed in [docs/session-api.md](docs/session-api.md).
+  specified in [docs/session-api.md](docs/session-api.md).
+- **Embeddable** — `codebox-core` is a plain library (no HTTP server, no logging
+  backend) offering the same operations in-process.
+- **Windows and Linux hosts** — the service and both runtimes run on either;
+  Docker Desktop and Docker Engine are both supported, as is Podman.
 - **Pluggable session runtimes**
   - **`docker`** — every session is an ephemeral container, destroyed with the
     session. This is the default and the only runtime meant for untrusted work.
@@ -71,27 +77,128 @@ All of the above are free and open source. The conclusion:
   Windows and macOS for development), and Maven/Gradle/Node/C/C++ builds work
   in them without any trouble.
 - **VM-grade isolation comes for free through the container runtime.** Because
-  the `docker` runtime only talks to the Docker Engine API, an operator who
+  the `docker` runtime only drives the `docker` CLI, an operator who
   wants stronger isolation configures gVisor or Kata as the Docker runtime
-  (`--runtime=runsc` / `kata-runtime`) and orknux-codebox selects it per
-  configuration. No separate code path is needed.
+  (`--runtime=runsc` / `kata-runtime`) and orknux-codebox selects it through
+  `CODEBOX_DOCKER_RUNTIME`. No separate code path is needed.
 - **A native microVM runtime (Firecracker) is not worth it now.** It needs
   Linux with KVM (no Windows/macOS, often no nested virtualisation in cloud
   VMs), its own root filesystem images, a guest agent and network plumbing —
   roughly a second product. The runtime abstraction leaves room to add it later
   if multi-tenant hosting ever demands it.
 
-## Building
+## Modules
 
-> Not implemented yet. Planned stack: Kotlin on JDK 25, Maven, Ktor (CIO) with
-> kotlinx.serialization, and the GraalVM Native Build Tools plugin. The Docker
-> runtime talks to the Docker Engine API directly over its socket rather than
-> through a reflection-heavy client library, to keep native builds simple.
+| module | what it is |
+|---|---|
+| `codebox-core` | Sessions, executions, files, logs and the `docker` / `local` runtimes. Kotlin coroutines, kotlinx.serialization and slf4j-api only. |
+| `codebox-server` | The HTTP Session API on Ktor (CIO), packaged as a runnable jar or a GraalVM native image. |
+| `images/toolchain` | `orknux/codebox-toolchain`, the default container image. |
+
+Containers are driven through the `docker` CLI rather than the Engine API.
+That gives one code path for Docker Desktop on Windows (named pipe), Docker
+Engine on Linux (unix socket), remote daemons (`DOCKER_HOST`) and Podman, and
+nothing reflective for native images. The CLI has to be on the `PATH` of the
+service.
+
+## Running the server
 
 ```sh
-./mvnw package             # JVM jar
-./mvnw -Pnative package    # GraalVM native image
+docker build -t orknux/codebox-toolchain:latest images/toolchain   # once
+./mvnw package
+CODEBOX_TOKEN=change-me java -jar codebox-server/target/orknux-codebox.jar
 ```
+
+```sh
+curl -s -H 'Authorization: Bearer change-me' -H 'Content-Type: application/json' \
+     -d '{"caches":["maven"],"source":{"git":{"url":"https://github.com/octocat/Hello-World.git"}}}' \
+     localhost:8080/v1/sessions
+```
+
+### Configuration
+
+Environment variables (or system properties: `CODEBOX_MAX_SESSIONS` ->
+`-Dcodebox.max.sessions`).
+
+| variable | default | meaning |
+|---|---|---|
+| `CODEBOX_TOKEN` | — | Bearer token clients must send. Required. |
+| `CODEBOX_INSECURE_NO_AUTH` | `false` | Run without a token (development only). |
+| `CODEBOX_HOST` / `CODEBOX_PORT` | `0.0.0.0` / `8080` | Listen address. |
+| `CODEBOX_RUNTIMES` | `docker` | Enabled runtimes, e.g. `docker,local`. |
+| `CODEBOX_DEFAULT_RUNTIME` | first enabled | Runtime for requests that don't name one. |
+| `CODEBOX_DEFAULT_TTL_SECONDS` / `CODEBOX_MAX_TTL_SECONDS` | `7200` / `86400` | Session lifetime. |
+| `CODEBOX_DEFAULT_IDLE_TIMEOUT_SECONDS` | `900` | Idle sessions are stopped after this. |
+| `CODEBOX_RETENTION_SECONDS` | `86400` | How long stopped sessions stay readable. |
+| `CODEBOX_MAX_SESSIONS` | `50` | Active sessions at once. |
+| `CODEBOX_MAX_OUTPUT_BYTES` | `4194304` | Output kept per execution stream. |
+| `CODEBOX_KILL_GRACE_SECONDS` | `10` | Between SIGTERM and SIGKILL on timeout. |
+| `CODEBOX_DOCKER_BINARY` | `docker` | CLI to use, e.g. `podman`. |
+| `CODEBOX_DOCKER_DEFAULT_IMAGE` | `orknux/codebox-toolchain:latest` | Image for sessions that don't name one. |
+| `CODEBOX_DOCKER_IMAGES` | `*` | Comma-separated allowlist of images. |
+| `CODEBOX_DOCKER_RUNTIME` | — | OCI runtime, e.g. `runsc` (gVisor) or `kata-runtime`. |
+| `CODEBOX_DOCKER_DEFAULT_CPUS` / `_MAX_CPUS` | `2` / `8` | CPU limit. |
+| `CODEBOX_DOCKER_DEFAULT_MEMORY_MB` / `_MAX_MEMORY_MB` | `4096` / `16384` | Memory limit (swap included). |
+| `CODEBOX_DOCKER_DEFAULT_PIDS` / `_MAX_PIDS` | `1024` / `4096` | Process limit. |
+| `CODEBOX_DOCKER_DISK_LIMIT` | `false` | Enforce `diskMb` (needs overlay2 on xfs with pquota). |
+| `CODEBOX_DOCKER_CACHE_VOLUME_PREFIX` | `orknux-codebox-cache-` | Named volumes for shared caches. |
+| `CODEBOX_DOCKER_CLEANUP_ON_START` | `true` | Remove containers left by a previous run. |
+| `CODEBOX_LOCAL_ROOT` | `<tmp>/orknux-codebox` | Where local workspaces live. |
+| `CODEBOX_LOCAL_SHELL` | `/bin/sh -lc`, or `cmd.exe /d /s /c` on Windows | Shell for `command` strings, e.g. `bash -lc` or `pwsh -NoProfile -Command`. |
+
+Sessions live in memory: restarting the service stops them all (and, with the
+default cleanup, removes their containers).
+
+## Embedding
+
+Depend on `codebox-core`:
+
+```xml
+<dependency>
+    <groupId>io.mszymanski.orknux</groupId>
+    <artifactId>codebox-core</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+</dependency>
+```
+
+```kotlin
+val codebox = Codebox(
+    Config(
+        runtimes = setOf(Config.RUNTIME_LOCAL),
+        defaultRuntime = Config.RUNTIME_LOCAL,
+        local = LocalConfig(root = Path.of("/var/lib/orknux/codebox")),
+    ),
+).start()
+
+val session = codebox.sessions.create(CreateSessionRequest(labels = mapOf("workspace" to "acme")))
+val run = codebox.sessions.execute(session, ExecuteRequest(command = "git status"))
+codebox.sessions.await(session, run, seconds = 60)
+println(run.toDto(maxOutputBytes = 65536).stdout)
+
+codebox.files.write(session, "notes.md", "hello".toByteArray(), mode = null, ifMatch = null)
+codebox.sessions.stop(session, "deleted")
+codebox.close()   // stops every session
+```
+
+`codebox.sessions` covers lifecycle, executions and the event log;
+`codebox.files` the file operations. The request and response types are the
+API's (`io.mszymanski.orknux.codebox.model`), and failures are `ApiException`s
+with the same `status` and `code` the HTTP API would return. The methods are
+`suspend` functions. Settings can also come from the environment with
+`Config.load()`.
+
+## Building
+
+Kotlin on JDK 25 with Maven.
+
+```sh
+./mvnw verify                                   # build and test (Docker tests skip without a daemon)
+./mvnw -Pnative -pl codebox-server -am package  # native image; needs GraalVM as JAVA_HOME
+```
+
+`CODEBOX_TEST_IMAGE` picks the image the Docker tests run against (default
+`debian:bookworm-slim`, which has no git or ripgrep so the fallbacks get
+covered).
 
 ## License
 

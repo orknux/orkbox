@@ -1,0 +1,6 @@
+# Scripts and Dockerfiles are read inside Linux containers; a CRLF shebang
+# fails as "bad interpreter: /bin/sh^M".
+*.sh text eol=lf
+Dockerfile* text eol=lf
+mvnw text eol=lf
+mvnw.cmd text eol=crlf

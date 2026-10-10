@@ -1,6 +1,7 @@
-# Session API — proposal
+# Session API
 
-Status: **accepted.** Implementation in progress.
+The HTTP API served by `codebox-server`. The same operations are available
+in-process through `codebox-core` (see the README), with the same error codes.
 
 ## Conventions
 
@@ -59,11 +60,22 @@ Status: **accepted.** Implementation in progress.
 }
 ```
 
-All fields are optional. Without `source` the workspace starts empty. A clone
-that fails puts the session into `failed` with the git error as `failure`. Returns `201 Created` with the session (below) and
-`Location: /v1/sessions/{id}`. The call returns once the session is `ready`; a
-session that fails to start is returned with status `failed` and a `failure`
-message (and still has to be deleted, so its logs stay readable).
+All fields are optional. Without `source` the workspace starts empty; with it
+the clone runs as ordinary executions (visible under `/executions` and in the
+log), with `GIT_TERMINAL_PROMPT=0` so a missing credential fails instead of
+hanging.
+
+Returns `201 Created` with the session (below) and `Location:
+/v1/sessions/{id}`, once the session is `ready`. A session that fails to start
+(container error, failed clone) comes back with status `failed`, the reason in
+`failure`, and its sandbox already removed; its record and logs stay readable
+for the retention period.
+
+Runtime differences: `image`, `resources`, `caches` and `network: "none"` are
+`docker` only. `local` rejects `image` and `network: "none"`, and ignores
+`resources` and `caches` (reported as `null` / `[]`). Requests above the
+configured maximums fail with `limit_exceeded`; more active sessions than
+allowed with `429 too_many_sessions`.
 
 ### `GET /v1/sessions/{id}` — session details
 
@@ -82,13 +94,21 @@ message (and still has to be deleted, so its logs stay readable).
   "createdAt": "2026-10-10T10:00:00Z",
   "lastActivityAt": "2026-10-10T10:04:12Z",
   "expiresAt": "2026-10-10T12:00:00Z",
+  "idleTimeoutSeconds": 900,
   "stoppedAt": null,
   "stopReason": null,                      // deleted | ttl_expired | idle_timeout | failed | server_shutdown
   "failure": null,
   "executions": { "total": 14, "running": 1 },
-  "usage": { "cpuSeconds": 81.2, "memoryPeakMb": 1830, "diskUsedMb": 612 }
+  "usage": { "cpuSeconds": 81.2, "memoryPeakMb": 1830, "memoryCurrentMb": 640 }
 }
 ```
+
+`usage` is read from the container's cgroup on this endpoint only (not in
+lists), and is `null` for `local` sessions.
+
+A session is **idle** when no API call has touched it for `idleTimeoutSeconds`
+*and* none of its executions is running; idle and expired sessions are stopped
+by a reaper that runs every few seconds.
 
 ### `GET /v1/sessions` — list sessions
 
@@ -101,8 +121,9 @@ Query: `status`, `runtime`, `label=key:value` (repeatable, AND-ed), `limit`
 { "ttlSeconds": 3600, "idleTimeoutSeconds": 600, "labels": { "agent": "reviewer" } }
 ```
 
-Extends or shortens lifetime (measured from now) and merges labels (a `null`
-value removes a label). Image, runtime and resources are fixed at creation.
+Extends or shortens lifetime (measured from now, but never past the configured
+maximum lifetime counted from creation) and merges labels (a `null` value
+removes a label). Image, runtime and resources are fixed at creation.
 
 ### `DELETE /v1/sessions/{id}` — stop and destroy
 
@@ -121,8 +142,10 @@ The session's chronological event log: lifecycle events, every execution's
 start/finish, and (optionally) execution output. This is the audit trail of
 "what happened in this sandbox".
 
-Query: `since` (sequence number, exclusive), `types` (comma list), `limit`,
-`follow` (SSE).
+Query: `since` (sequence number, exclusive), `types` (comma list), `limit`
+(default 1000), `follow` (SSE: one `event: <type>` per log event with
+`id: <seq>`, a `: ping` comment every 15 s, and a final `event: end` once the
+session has stopped).
 
 ```json
 {
@@ -144,6 +167,7 @@ Event types: `session.created`, `session.ready`, `session.failed`,
 `execution.started`, `execution.output`, `execution.finished`,
 `file.written`, `file.edited`, `file.deleted`, `file.moved`, `archive.uploaded`.
 `execution.output` is excluded unless `types` asks for it, since it dominates the log.
+The log keeps the most recent events up to a configured count (default 20 000).
 
 ---
 
@@ -156,14 +180,15 @@ common agent case) or run in the background (dev servers, watchers, long builds)
 
 ```json
 {
-  "command": "mvn -q test",          // run via `/bin/sh -lc`  — OR —
+  "command": "mvn -q test",          // run through the runtime's shell — OR —
   "argv": ["mvn", "-q", "test"],     // run directly, no shell (exactly one of the two)
   "cwd": "service",                  // relative to workspace; default workspace root
   "env": { "MAVEN_OPTS": "-Xmx1g" }, // merged over session env
-  "stdin": "…",                      // optional, closed after writing
-  "timeoutSeconds": 600,             // killed with SIGTERM, then SIGKILL after a grace period
+  "stdin": "…",                      // optional, written then closed
+  "interactive": false,              // true: keep stdin open for /stdin (excludes "stdin")
+  "timeoutSeconds": 600,             // default 1800; SIGTERM, then SIGKILL after a grace period
   "wait": true,                      // true: respond when finished (or when waitSeconds elapses)
-  "waitSeconds": 120,                // cap on how long the HTTP call blocks; execution keeps running
+  "waitSeconds": 120,                // default 300, max 3600; the execution keeps running after
   "maxOutputBytes": 65536            // per stream, in the response; full output stays retrievable
 }
 ```
@@ -192,7 +217,18 @@ Response (`200` if finished, `202` if still running):
 ```
 
 `failed` means a non-zero exit code; `timed_out` means `timeoutSeconds` hit;
-`killed` means a signal was sent through the API or the session stopped.
+`killed` means a signal was sent through the API or the session stopped. A
+program that does not exist fails like it would in a shell (exit code 127).
+
+Unless `interactive` is set, stdin is closed right away, so a command that
+reads it sees end of input instead of hanging.
+
+The shell a `command` runs in depends on the runtime and is reported by
+`/v1/info`: in containers `bash -c` (falling back to `sh -c`); on a local
+Linux/macOS host `/bin/sh -lc`; on a local Windows host `cmd.exe /d /s /c`.
+The local shell can be changed through configuration. In containers every
+command runs in its own process group, so signals and timeouts reach its
+children too; locally the process tree is signalled.
 
 Executions in one session may run concurrently.
 
@@ -203,26 +239,33 @@ Query: `status`, `limit`, `cursor`. Items omit `stdout`/`stderr`.
 ### `GET /v1/sessions/{id}/executions/{execId}` — execution details
 
 Same shape as the create response. `?wait=true&waitSeconds=60` long-polls until
-the execution finishes.
+the execution finishes; `maxOutputBytes` (default 65536) sizes the excerpts.
 
 ### `GET /v1/sessions/{id}/executions/{execId}/output` — full output
 
 Query: `stream` (`stdout` | `stderr` | `combined`, default `combined`),
 `offset` (byte offset), `limit` (bytes), `follow` (SSE until the execution ends).
 Without `follow` returns `text/plain` with headers `X-Next-Offset` and
-`X-Execution-Status`. Output is kept up to a configured cap per execution
-(default 16 MiB); beyond that only the tail is retained.
+`X-Execution-Status`. With `follow`, each chunk is an `event: output` with
+`data: {"offset": …, "text": "…"}` and `id` set to the next offset, and the
+stream ends with `event: end` carrying the finished execution. Output is kept
+up to a configured cap per stream (default 4 MiB); beyond that only the tail is
+retained, and an `offset` that fell out of it reads from the oldest byte left.
 
 ### `POST /v1/sessions/{id}/executions/{execId}/stdin`
 
 Raw body appended to the process's stdin. `?close=true` closes stdin afterwards.
-Only for executions started without `stdin` in the request.
+Only for executions started with `interactive: true`; otherwise `409 stdin_closed`.
+Returns `204`.
 
 ### `POST /v1/sessions/{id}/executions/{execId}/signal`
 
 ```json
 { "signal": "TERM" }   // INT | TERM | KILL | HUP
 ```
+
+Returns the execution. On a local Windows host there are no signals: `KILL`
+terminates the process tree forcibly and the others ask it to terminate.
 
 ---
 
@@ -260,13 +303,16 @@ Search-and-replace edits, the format agents already use:
 
 Edits apply in order, atomically (all or none). An `oldText` that matches zero
 times — or more than once without `replaceAll` — fails with `edit_no_match` /
-`edit_ambiguous` and the index of the edit. Returns `{ "path", "size", "etag",
+`edit_ambiguous` (`422`, with `editIndex` in the problem). Returns `{ "path", "size", "etag",
 "replacements": [1, 7] }`.
 
 ### `GET /v1/sessions/{id}/files?path=…` — list a directory
 
-Query: `depth` (default 1), `glob` (e.g. `**/*.kt`), `includeHidden`
-(default false), `limit`. Honours `.gitignore` unless `ignoreGitignore=true`.
+Query: `depth` (default 1, or unlimited when a `glob` is given), `glob` (e.g.
+`**/*.kt`; a glob without `/` matches file names at any depth), `includeHidden`
+(default false), `limit` (default 1000). Honours `.gitignore` (via `git
+check-ignore`, when git and a repository are present) unless
+`ignoreGitignore=true`.
 
 ```json
 {
@@ -309,12 +355,15 @@ Query `recursive=true` required for non-empty directories.
 ```
 
 Returns `{ "matches": [{ "path", "line", "column", "text", "before": [], "after": [] }], "truncated" }`.
-Uses ripgrep inside the session when available, a built-in matcher otherwise.
+Uses ripgrep inside the session when available (which also honours
+`.gitignore` and skips hidden files); otherwise `grep` in containers (no context
+lines) or a built-in matcher for local sessions. `maxResults` is capped at
+10 000 and `contextLines` at 20.
 
 ### Archives — bulk transfer
 
 - `PUT /v1/sessions/{id}/archive?path=…` — body is a `.tar` or `.tar.gz`
-  (by `Content-Type`), extracted into `path`. For seeding a session with a
+  (detected from its first bytes), extracted into `path`. Returns `204`. For seeding a session with a
   repository checkout orknux-server already has.
 - `GET /v1/sessions/{id}/archive?path=…` — returns `path` as `.tar.gz`. For
   pulling results (build artifacts, a patched tree) back out.
