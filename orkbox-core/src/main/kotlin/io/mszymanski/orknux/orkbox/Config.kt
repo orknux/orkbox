@@ -73,6 +73,7 @@ data class Config(
                 local = LocalConfig(
                     root = Path(str("ORKBOX_LOCAL_ROOT") ?: Path(System.getProperty("java.io.tmpdir"), "orkbox").toString()),
                     shell = str("ORKBOX_LOCAL_SHELL")?.split(' ')?.filter { it.isNotEmpty() } ?: LocalConfig.defaultShell(),
+                    owner = str("ORKBOX_LOCAL_OWNER") ?: "orkbox",
                 ),
             )
             config.validate()
@@ -125,6 +126,13 @@ data class LocalConfig(
     val root: Path = Path(System.getProperty("java.io.tmpdir"), "orkbox"),
     /** Command prefix a `command` string is appended to. */
     val shell: List<String> = defaultShell(),
+    /**
+     * Who this instance is, written beside every workspace it makes. The
+     * start-up clean-up removes only workspaces carrying this name, so two
+     * instances sharing a root - a standalone server and an embedded one, or
+     * two embedded ones - never delete each other's sessions.
+     */
+    val owner: String = "orkbox",
 ) {
     companion object {
         val isWindows = System.getProperty("os.name").lowercase().startsWith("windows")

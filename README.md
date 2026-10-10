@@ -149,6 +149,7 @@ Environment variables (or system properties: `ORKBOX_MAX_SESSIONS` ->
 | `ORKBOX_DOCKER_CACHE_VOLUME_PREFIX` | `orkbox-cache-` | Named volumes for shared caches. |
 | `ORKBOX_DOCKER_CLEANUP_ON_START` | `true` | Remove containers left by a previous run. |
 | `ORKBOX_LOCAL_ROOT` | `<tmp>/orkbox` | Where local workspaces live. |
+| `ORKBOX_LOCAL_OWNER` | `orkbox` | Name written beside each local workspace; start-up clean-up removes only workspaces with this name, so instances sharing a root leave each other's alone. |
 | `ORKBOX_LOCAL_SHELL` | `/bin/sh -lc`, or `cmd.exe /d /s /c` on Windows | Shell for `command` strings, e.g. `bash -lc` or `pwsh -NoProfile -Command`. |
 
 Sessions live in memory: restarting the service stops them all (and, with the

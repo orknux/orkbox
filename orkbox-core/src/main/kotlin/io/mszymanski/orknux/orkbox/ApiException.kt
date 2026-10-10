@@ -21,6 +21,10 @@ class ApiException(
         fun fileNotFound(path: String) = ApiException(404, "file_not_found", "File not found", "No such file or directory: $path")
         fun isDirectory(path: String) = ApiException(409, "is_directory", "Is a directory", "$path is a directory")
         fun notDirectory(path: String) = ApiException(409, "not_directory", "Not a directory", "$path is not a directory")
+        fun workspaceMissing() = ApiException(
+            409, "workspace_missing", "Workspace missing",
+            "This session's workspace is no longer on disk - something outside the session removed it. Open a new session.",
+        )
         fun pathOutsideWorkspace(path: String) =
             ApiException(400, "path_outside_workspace", "Path outside workspace", "$path resolves outside the session workspace")
     }

@@ -18,6 +18,37 @@ class RipgrepArgsTest {
     }
 }
 
+class LocalOwnershipTest {
+    private fun spec(id: String) = SandboxSpec(id, null, emptyMap(), null, true, emptyList())
+
+    @Test
+    fun `start-up clean-up removes only the workspaces this instance made`() = kotlinx.coroutines.runBlocking {
+        val root = java.nio.file.Files.createTempDirectory("orkbox-owners")
+        val mine = LocalRuntime(io.mszymanski.orknux.orkbox.LocalConfig(root = root, owner = "a"))
+        val theirs = LocalRuntime(io.mszymanski.orknux.orkbox.LocalConfig(root = root, owner = "b"))
+        mine.create(spec("ses_mine"))
+        theirs.create(spec("ses_theirs"))
+        java.nio.file.Files.createDirectories(root.resolve("ses_unmarked"))
+
+        mine.cleanupOrphans()
+
+        assertFalse(java.nio.file.Files.exists(root.resolve("ses_mine")))
+        assertTrue(java.nio.file.Files.exists(root.resolve("ses_theirs")))
+        assertTrue(java.nio.file.Files.exists(root.resolve("ses_unmarked")))
+        deleteTree(root)
+    }
+
+    @Test
+    fun `a workspace removed from under its session is reported missing, not outside`() = kotlinx.coroutines.runBlocking {
+        val root = java.nio.file.Files.createTempDirectory("orkbox-missing")
+        val sandbox = LocalRuntime(io.mszymanski.orknux.orkbox.LocalConfig(root = root)).create(spec("ses_gone"))
+        deleteTree(root.resolve("ses_gone"))
+        val refused = assertFailsWith<ApiException> { sandbox.list("modules", 1, false) }
+        assertEquals("workspace_missing", refused.code)
+        deleteTree(root)
+    }
+}
+
 class DeleteTreeOrSayTest {
     @Test
     fun `a tree deleted whole says nothing`() {

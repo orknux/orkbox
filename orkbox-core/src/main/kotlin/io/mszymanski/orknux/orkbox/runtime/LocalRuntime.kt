@@ -30,6 +30,9 @@ import kotlin.io.path.name
  * Sessions as directories on the host, with commands run as the service's own
  * user. There is no isolation: anything a command does, the service could do.
  */
+/** The file beside a workspace naming the instance that made it. */
+private const val OWNER_SUFFIX = ".owner"
+
 class LocalRuntime(private val config: LocalConfig) : Runtime {
     override val name = Config.RUNTIME_LOCAL
     private val log = LoggerFactory.getLogger(LocalRuntime::class.java)
@@ -37,6 +40,8 @@ class LocalRuntime(private val config: LocalConfig) : Runtime {
     override suspend fun create(spec: SandboxSpec): Sandbox = withContext(Dispatchers.IO) {
         val dir = config.root.resolve(spec.sessionId)
         dir.createDirectories()
+        /* Beside the workspace rather than in it, so the session never sees it. */
+        Files.writeString(config.root.resolve(spec.sessionId + OWNER_SUFFIX), config.owner)
         LocalSandbox(dir.toRealPath(), spec.env, config.shell)
     }
 
@@ -47,9 +52,19 @@ class LocalRuntime(private val config: LocalConfig) : Runtime {
     override suspend fun cleanupOrphans() = withContext(Dispatchers.IO) {
         if (!config.root.exists()) return@withContext
         Files.list(config.root).use { entries ->
+            /*
+             * Only what this instance made: a workspace whose owner file names
+             * another - or that has none - may belong to a different server
+             * sharing this root, and deleting it pulled the floor from under
+             * that server's live sessions.
+             */
             entries.filter { it.name.startsWith("ses_") && it.isDirectory() }.forEach {
+                val marker = config.root.resolve(it.name + OWNER_SUFFIX)
+                val owner = runCatching { Files.readString(marker).trim() }.getOrNull()
+                if (owner != config.owner) return@forEach
                 log.info("Removing workspace {} left by a previous run", it)
                 deleteTree(it)
+                Files.deleteIfExists(marker)
             }
         }
     }
@@ -75,6 +90,8 @@ class LocalSandbox(
 
     /** Resolves a normalised path, refusing symlinks that lead out of the workspace. */
     private fun resolve(path: String): Path {
+        /* Without this, a workspace removed from under the session read as every path being outside it. */
+        if (!Files.exists(root)) throw ApiException.workspaceMissing()
         val target = if (path.isEmpty()) root else root.resolve(path)
         var existing = target
         while (!Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) existing = existing.parent ?: break
@@ -243,7 +260,11 @@ class LocalSandbox(
 
     override suspend fun usage(): Usage? = null
 
-    override suspend fun destroy() = withContext(Dispatchers.IO) { deleteTree(root) }
+    override suspend fun destroy() = withContext(Dispatchers.IO) {
+        deleteTree(root)
+        Files.deleteIfExists(root.resolveSibling(root.fileName.toString() + OWNER_SUFFIX))
+        Unit
+    }
 }
 
 /**
