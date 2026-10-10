@@ -308,6 +308,10 @@ guard that the lines still hold it:
 { "path": "src/App.kt", "edits": [ { "startLine": 12, "endLine": 14, "newText": "val port = config.port" } ] }
 ```
 
+Or by regular expression, with `"regex": true` - `oldText` is the pattern
+(multiline, so `^` and `$` match at line breaks) and `newText` may refer to its
+groups as `$1`; an invalid pattern fails with `invalid_regex`.
+
 Edits apply in order, atomically (all or none); line numbers refer to the file
 as the edits before them left it, so give several line edits bottom-up. An
 `oldText` that matches zero times — or more than once without `replaceAll` —

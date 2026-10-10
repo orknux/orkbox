@@ -61,6 +61,18 @@ abstract class SessionContract {
     }
 
     @Test
+    fun `a regular expression replaces what it matches, with its groups`() = runBlocking {
+        val files = orkbox.files
+        files.write(session, "re.txt", "port = 8080\nhost = a\nport = 9090\n".toByteArray(), null, null)
+        files.edit(session, EditRequest("re.txt", listOf(Edit(oldText = "^port = (\\d+)$", newText = "port = <$1>", replaceAll = true, regex = true))))
+        assertEquals("port = <8080>\nhost = a\nport = <9090>\n", String(files.read(session, "re.txt", null, null).bytes))
+        val bad = assertFailsWith<ApiException> {
+            files.edit(session, EditRequest("re.txt", listOf(Edit(oldText = "(", newText = "x", regex = true))))
+        }
+        assertEquals("invalid_regex", bad.code)
+    }
+
+    @Test
     fun `lines are replaced by number, guarded by what they held`() = runBlocking {
         val files = orkbox.files
         files.write(session, "lines.txt", "a\nb\nc\nd\n".toByteArray(), null, null)

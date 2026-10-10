@@ -719,6 +719,7 @@ components:
         replaceAll: { type: boolean, default: false }
         startLine: { type: [integer, 'null'], description: 'First line to replace, 1-based.' }
         endLine: { type: [integer, 'null'], description: 'Last line to replace, inclusive; startLine when left out.' }
+        regex: { type: boolean, default: false, description: 'oldText is a regular expression (multiline); newText may refer to groups as $1.' }
 
     EditRequest:
       type: object

@@ -79,6 +79,20 @@ class FileService {
             }
             val asked = edit.oldText
             if (asked.isNullOrEmpty()) throw edit(index, "edit_no_match", "oldText must not be empty")
+            if (edit.regex) {
+                val pattern = runCatching { Regex(asked, RegexOption.MULTILINE) }.getOrElse {
+                    throw edit(index, "invalid_regex", "Edit $index: oldText is not a valid regular expression: ${it.message}")
+                }
+                val found = pattern.findAll(text).count()
+                when {
+                    found == 0 -> throw edit(index, "edit_no_match", "Edit $index: the pattern matches nothing in ${request.path}")
+                    found > 1 && !edit.replaceAll -> throw edit(index, "edit_ambiguous",
+                        "Edit $index: the pattern matches $found times in ${request.path}; make it unique or set replaceAll")
+                }
+                text = if (edit.replaceAll) pattern.replace(text, edit.newText) else pattern.replaceFirst(text, edit.newText)
+                counts += found
+                continue
+            }
             /*
              * Line endings are not the edit. A file with CRLF lines is matched by
              * text written with LF ones - which is how a caller writes it - and the

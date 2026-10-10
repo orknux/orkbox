@@ -144,6 +144,8 @@ data class Edit(
     val startLine: Int? = null,
     /** The last line replaced; [startLine] when left out. */
     val endLine: Int? = null,
+    /** [oldText] is a regular expression, and [newText] may refer to its groups as `$1`. */
+    val regex: Boolean = false,
 )
 
 @Serializable
