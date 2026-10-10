@@ -5,10 +5,10 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.mszymanski.orknux</groupId>
-    <artifactId>orktin</artifactId>
+    <artifactId>orkbox</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
-    <name>orktin</name>
+    <name>orkbox</name>
     <description>Session API giving coding agents a sandboxed filesystem and shell</description>
 
     <licenses>
@@ -19,8 +19,8 @@
     </licenses>
 
     <modules>
-        <module>orktin-core</module>
-        <module>orktin-server</module>
+        <module>orkbox-core</module>
+        <module>orkbox-server</module>
     </modules>
 
     <properties>
@@ -39,7 +39,7 @@
         <dependencies>
             <dependency>
                 <groupId>io.mszymanski.orknux</groupId>
-                <artifactId>orktin-core</artifactId>
+                <artifactId>orkbox-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

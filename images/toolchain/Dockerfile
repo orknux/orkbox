@@ -1,9 +1,9 @@
-# orknux/orktin-toolchain: the default image for docker sessions.
+# orknux/orkbox-toolchain: the default image for docker sessions.
 #
 # Builds Maven, Gradle, Node.js, C and C++ projects out of the box. Commands
 # run as root, so agents can apt-get install anything else they need.
 #
-#   docker build -t orknux/orktin-toolchain:latest images/toolchain
+#   docker build -t orknux/orkbox-toolchain:latest images/toolchain
 #
 # Any image can be used instead, as long as it has: sh, setsid (util-linux),
 # GNU coreutils, findutils and tar. ripgrep and git are used when present.

@@ -1,14 +1,14 @@
 # Session API
 
-The HTTP API served by `orktin-server`. The same operations are available
-in-process through `orktin-core` (see the README), with the same error codes.
+The HTTP API served by `orkbox-server`. The same operations are available
+in-process through `orkbox-core` (see the README), with the same error codes.
 
 ## Conventions
 
 - Base path `/v1`. JSON bodies, `camelCase` fields, timestamps in RFC 3339 UTC.
 - IDs are opaque strings with a type prefix: `ses_…`, `exe_…`.
 - Authentication: `Authorization: Bearer <token>`, a static shared secret
-  configured on both orknux-server and orktin. orktin has no
+  configured on both orknux-server and orkbox. orkbox has no
   users; tenancy and ownership are expressed by orknux-server through
   **labels** (e.g. `workspace`, `run`, `agent`).
 - Errors are `application/problem+json` (RFC 9457) with a stable `code`:
@@ -36,7 +36,7 @@ in-process through `orktin-core` (see the README), with the same error codes.
 ```json
 {
   "runtime": "docker",                     // "docker" | "local"; default from config
-  "image": "orknux/orktin-toolchain:1",   // docker only; must be on the configured allowlist
+  "image": "orknux/orkbox-toolchain:1",   // docker only; must be on the configured allowlist
   "env": { "CI": "true" },                 // default env for every execution
   "resources": {                           // docker only; capped by server config
     "cpus": 2.0,
@@ -84,7 +84,7 @@ allowed with `429 too_many_sessions`.
   "id": "ses_9f2c1a",
   "status": "ready",                        // creating | ready | stopping | stopped | failed
   "runtime": "docker",
-  "image": "orknux/orktin-toolchain:1",
+  "image": "orknux/orkbox-toolchain:1",
   "workdir": "/workspace",
   "env": { "CI": "true" },
   "resources": { "cpus": 2.0, "memoryMb": 4096, "diskMb": 10240, "pids": 1024 },
@@ -400,4 +400,4 @@ commands run as the service's own OS user.
 - **An MCP endpoint** exposing the same operations as tools. orknux-server
   wraps the HTTP API into tools itself; an MCP facade could be added later for
   other clients.
-- **Multi-node scheduling.** One orktin instance drives one Docker host.
+- **Multi-node scheduling.** One orkbox instance drives one Docker host.
