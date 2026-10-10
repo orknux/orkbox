@@ -1,0 +1,803 @@
+openapi: 3.1.0
+info:
+  title: orktin Session API
+  version: __VERSION__
+  description: |
+    Sessions are isolated workspaces (an ephemeral container or a local
+    directory) in which coding agents read and write files and run commands.
+    orktin runs no agents and talks to no LLM provider; it only
+    provides the environment.
+
+    Paths in file and execution endpoints are relative to the session's
+    workspace root. Absolute paths are accepted only inside it; anything
+    climbing out is rejected with `path_outside_workspace`.
+
+    Errors are `application/problem+json` with a stable `code`.
+    Endpoints taking `follow=true` stream Server-Sent Events.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: /
+    description: The server this document was fetched from.
+
+security:
+  - bearer: []
+
+tags:
+  - name: service
+    description: Health, readiness, service information and this document.
+  - name: sessions
+    description: Session lifecycle and the session event log.
+  - name: executions
+    description: Commands run inside a session.
+  - name: files
+    description: Structured file access and bulk transfer.
+
+paths:
+  /healthz:
+    get:
+      tags: [service]
+      operationId: health
+      summary: Liveness
+      security: []
+      responses:
+        '200': { description: The service is up., content: { text/plain: { schema: { type: string } } } }
+  /readyz:
+    get:
+      tags: [service]
+      operationId: ready
+      summary: Readiness
+      description: Ready when every enabled runtime can create sessions (e.g. the Docker daemon is reachable).
+      security: []
+      responses:
+        '200': { description: Ready., content: { text/plain: { schema: { type: string } } } }
+        '503': { description: Not ready; the body says which runtime and why., content: { text/plain: { schema: { type: string } } } }
+  /openapi.yaml:
+    get:
+      tags: [service]
+      operationId: getOpenApi
+      summary: This document
+      security: []
+      responses:
+        '200': { description: The OpenAPI document., content: { application/yaml: { schema: { type: string } } } }
+  /docs:
+    get:
+      tags: [service]
+      operationId: getDocs
+      summary: Swagger UI for this document
+      security: []
+      responses:
+        '200': { description: An HTML page., content: { text/html: { schema: { type: string } } } }
+
+  /v1/info:
+    get:
+      tags: [service]
+      summary: Version, runtimes and limits
+      operationId: getInfo
+      responses:
+        '200': { description: Service information., content: { application/json: { schema: { $ref: '#/components/schemas/Info' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/sessions:
+    post:
+      tags: [sessions]
+      summary: Create a session
+      description: |
+        Returns once the session is `ready`. A session that fails to start
+        (container error, failed clone) is returned with status `failed` and
+        the reason in `failure`.
+      operationId: createSession
+      requestBody:
+        required: false
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateSessionRequest' } } }
+      responses:
+        '201':
+          description: The new session.
+          headers:
+            Location: { schema: { type: string }, description: '`/v1/sessions/{id}`' }
+          content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [sessions]
+      summary: List sessions
+      operationId: listSessions
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/SessionStatus' } }
+        - { name: runtime, in: query, schema: { type: string } }
+        - name: label
+          in: query
+          description: '`key:value`; repeatable, all must match.'
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - { $ref: '#/components/parameters/limit' }
+        - { $ref: '#/components/parameters/cursor' }
+      responses:
+        '200': { description: Newest first., content: { application/json: { schema: { $ref: '#/components/schemas/SessionPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/sessions/{id}:
+    parameters: [ { $ref: '#/components/parameters/sessionId' } ]
+    get:
+      tags: [sessions]
+      summary: Session details
+      description: Includes `usage` (read from the container cgroup) for ready docker sessions.
+      operationId: getSession
+      responses:
+        '200': { description: The session., content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [sessions]
+      summary: Extend lifetime, change idle timeout, merge labels
+      operationId: updateSession
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateSessionRequest' } } }
+      responses:
+        '200': { description: The updated session., content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [sessions]
+      summary: Stop and destroy
+      description: Kills running executions and removes the sandbox. The record and logs stay readable for the retention period.
+      operationId: deleteSession
+      responses:
+        '200': { description: The stopped session., content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/sessions/{id}/logs:
+    parameters: [ { $ref: '#/components/parameters/sessionId' } ]
+    get:
+      tags: [sessions]
+      summary: The session's event log
+      description: |
+        `execution.output` events are left out unless `types` names them.
+        With `follow=true` the response is an SSE stream: one event per log
+        entry (`event: <type>`, `id: <seq>`, `data: <Event>`), `: ping`
+        comments every 15 s, and `event: end` once the session has stopped.
+      operationId: getSessionLogs
+      parameters:
+        - { name: since, in: query, description: Sequence number to start after., schema: { type: integer, format: int64, default: 0 } }
+        - { name: types, in: query, description: Comma-separated event types., schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 1000, maximum: 10000 } }
+        - { $ref: '#/components/parameters/follow' }
+      responses:
+        '200':
+          description: A page of events, or an event stream.
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/EventPage' } }
+            text/event-stream: { schema: { type: string } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/sessions/{id}/executions:
+    parameters: [ { $ref: '#/components/parameters/sessionId' } ]
+    post:
+      tags: [executions]
+      summary: Execute a command
+      description: |
+        Responds `200` when the command finished within `waitSeconds`, or `202`
+        while it is still running (poll or long-poll the execution).
+      operationId: execute
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ExecuteRequest' } } }
+      responses:
+        '200': { description: Finished., content: { application/json: { schema: { $ref: '#/components/schemas/Execution' } } } }
+        '202': { description: Still running., content: { application/json: { schema: { $ref: '#/components/schemas/Execution' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      tags: [executions]
+      summary: List executions
+      description: Newest first, without output.
+      operationId: listExecutions
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ExecutionStatus' } }
+        - { $ref: '#/components/parameters/limit' }
+        - { $ref: '#/components/parameters/cursor' }
+      responses:
+        '200': { description: A page of executions., content: { application/json: { schema: { $ref: '#/components/schemas/ExecutionPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/sessions/{id}/executions/{executionId}:
+    parameters: [ { $ref: '#/components/parameters/sessionId' }, { $ref: '#/components/parameters/executionId' } ]
+    get:
+      tags: [executions]
+      summary: Execution details
+      operationId: getExecution
+      parameters:
+        - { name: wait, in: query, description: Long-poll until the execution finishes., schema: { type: boolean, default: false } }
+        - { name: waitSeconds, in: query, schema: { type: integer, default: 300, maximum: 3600 } }
+        - { name: maxOutputBytes, in: query, description: Size of the stdout/stderr excerpts., schema: { type: integer, default: 65536 } }
+      responses:
+        '200': { description: The execution., content: { application/json: { schema: { $ref: '#/components/schemas/Execution' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/sessions/{id}/executions/{executionId}/output:
+    parameters: [ { $ref: '#/components/parameters/sessionId' }, { $ref: '#/components/parameters/executionId' } ]
+    get:
+      tags: [executions]
+      summary: Full output
+      description: |
+        Without `follow`, the bytes from `offset`. With `follow=true`, an SSE
+        stream of `event: output` (`data: <OutputChunk>`, `id: <next offset>`)
+        ending with `event: end` (`data: <Execution>`). Offsets that fell out
+        of the retained tail read from the oldest byte left.
+      operationId: getExecutionOutput
+      parameters:
+        - { name: stream, in: query, schema: { type: string, enum: [combined, stdout, stderr], default: combined } }
+        - { name: offset, in: query, schema: { type: integer, format: int64, default: 0 } }
+        - { name: limit, in: query, description: Bytes., schema: { type: integer } }
+        - { $ref: '#/components/parameters/follow' }
+      responses:
+        '200':
+          description: Output.
+          headers:
+            X-Next-Offset: { schema: { type: integer, format: int64 } }
+            X-Execution-Status: { schema: { $ref: '#/components/schemas/ExecutionStatus' } }
+          content:
+            text/plain: { schema: { type: string } }
+            text/event-stream: { schema: { type: string, description: 'SSE; each `output` event carries an OutputChunk.' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/sessions/{id}/executions/{executionId}/stdin:
+    parameters: [ { $ref: '#/components/parameters/sessionId' }, { $ref: '#/components/parameters/executionId' } ]
+    post:
+      tags: [executions]
+      summary: Write to stdin
+      description: Only for executions started with `interactive=true`.
+      operationId: writeStdin
+      parameters:
+        - { name: close, in: query, description: Close stdin after writing., schema: { type: boolean, default: false } }
+      requestBody:
+        required: true
+        content: { application/octet-stream: { schema: { type: string, format: binary } } }
+      responses:
+        '204': { description: Written. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/sessions/{id}/executions/{executionId}/signal:
+    parameters: [ { $ref: '#/components/parameters/sessionId' }, { $ref: '#/components/parameters/executionId' } ]
+    post:
+      tags: [executions]
+      summary: Signal a running command
+      operationId: signalExecution
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SignalRequest' } } }
+      responses:
+        '200': { description: The execution., content: { application/json: { schema: { $ref: '#/components/schemas/Execution' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/sessions/{id}/files:
+    parameters: [ { $ref: '#/components/parameters/sessionId' } ]
+    get:
+      tags: [files]
+      summary: List a directory
+      operationId: listFiles
+      parameters:
+        - { name: path, in: query, description: Directory; default the workspace root., schema: { type: string } }
+        - { name: depth, in: query, description: 'Levels to descend; default 1, unlimited when `glob` is given.', schema: { type: integer } }
+        - { name: glob, in: query, description: 'e.g. `**/*.kt`; without `/` it matches file names at any depth.', schema: { type: string } }
+        - { name: includeHidden, in: query, schema: { type: boolean, default: false } }
+        - { name: ignoreGitignore, in: query, schema: { type: boolean, default: false } }
+        - { name: limit, in: query, schema: { type: integer, default: 1000 } }
+      responses:
+        '200': { description: The entries., content: { application/json: { schema: { $ref: '#/components/schemas/DirectoryListing' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [files]
+      summary: Delete a file or directory
+      operationId: deleteFile
+      parameters:
+        - { $ref: '#/components/parameters/path' }
+        - { name: recursive, in: query, description: Required for non-empty directories., schema: { type: boolean, default: false } }
+      responses:
+        '204': { description: Deleted. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/sessions/{id}/files/content:
+    parameters: [ { $ref: '#/components/parameters/sessionId' }, { $ref: '#/components/parameters/path' } ]
+    get:
+      tags: [files]
+      summary: Read a file
+      description: '`text/plain` when the file is UTF-8 text, otherwise `application/octet-stream`.'
+      operationId: readFile
+      parameters:
+        - { name: startLine, in: query, description: '1-based, inclusive; text only.', schema: { type: integer } }
+        - { name: endLine, in: query, description: '1-based, inclusive; text only.', schema: { type: integer } }
+      responses:
+        '200':
+          description: File content.
+          headers:
+            ETag: { schema: { type: string } }
+            X-File-Size: { schema: { type: integer } }
+            X-Line-Count: { schema: { type: integer }, description: Text files only. }
+          content:
+            text/plain: { schema: { type: string } }
+            application/octet-stream: { schema: { type: string, format: binary } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    put:
+      tags: [files]
+      summary: Write a file
+      description: Creates parent directories.
+      operationId: writeFile
+      parameters:
+        - { name: mode, in: query, description: 'Octal permissions, e.g. `755`.', schema: { type: string, pattern: '^[0-7]{3,4}$' } }
+        - { name: If-Match, in: header, description: Refuse to overwrite a file whose ETag differs., schema: { type: string } }
+      requestBody:
+        required: true
+        content: { application/octet-stream: { schema: { type: string, format: binary } } }
+      responses:
+        '200':
+          description: Written.
+          headers: { ETag: { schema: { type: string } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/WriteResult' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/Problem' }
+
+  /v1/sessions/{id}/files/edit:
+    parameters: [ { $ref: '#/components/parameters/sessionId' } ]
+    post:
+      tags: [files]
+      summary: Search-and-replace edits
+      description: |
+        Applied in order and atomically. An `oldText` that matches nothing, or
+        more than once without `replaceAll`, fails with `422` and
+        `edit_no_match` / `edit_ambiguous` plus `editIndex`.
+      operationId: editFile
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EditRequest' } } }
+      responses:
+        '200':
+          description: Edited.
+          headers: { ETag: { schema: { type: string } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/EditResult' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/sessions/{id}/files/stat:
+    parameters: [ { $ref: '#/components/parameters/sessionId' }, { $ref: '#/components/parameters/path' } ]
+    get:
+      tags: [files]
+      summary: One entry
+      operationId: statFile
+      responses:
+        '200': { description: The entry., content: { application/json: { schema: { $ref: '#/components/schemas/FileEntry' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/sessions/{id}/files/move:
+    parameters: [ { $ref: '#/components/parameters/sessionId' } ]
+    post:
+      tags: [files]
+      summary: Move or rename
+      operationId: moveFile
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MoveRequest' } } }
+      responses:
+        '204': { description: Moved. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/sessions/{id}/files/search:
+    parameters: [ { $ref: '#/components/parameters/sessionId' } ]
+    post:
+      tags: [files]
+      summary: Search file contents
+      description: ripgrep when the session has it, otherwise grep (containers) or a built-in matcher (local).
+      operationId: searchFiles
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SearchRequest' } } }
+      responses:
+        '200': { description: Matches., content: { application/json: { schema: { $ref: '#/components/schemas/SearchResult' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/sessions/{id}/archive:
+    parameters: [ { $ref: '#/components/parameters/sessionId' } ]
+    get:
+      tags: [files]
+      summary: Download a path as .tar.gz
+      operationId: exportArchive
+      parameters:
+        - { name: path, in: query, description: Default the workspace root., schema: { type: string } }
+      responses:
+        '200': { description: The archive., content: { application/gzip: { schema: { type: string, format: binary } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [files]
+      summary: Extract a .tar or .tar.gz into a path
+      description: The format is detected from the content.
+      operationId: importArchive
+      parameters:
+        - { name: path, in: query, description: Default the workspace root., schema: { type: string } }
+      requestBody:
+        required: true
+        content: { application/octet-stream: { schema: { type: string, format: binary } } }
+      responses:
+        '204': { description: Extracted. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+
+  parameters:
+    sessionId: { name: id, in: path, required: true, schema: { type: string, example: ses_9f2c1a0b3d4e5f6g } }
+    executionId: { name: executionId, in: path, required: true, schema: { type: string, example: exe_7c1d2e3f4g5h } }
+    path: { name: path, in: query, required: true, description: Workspace-relative path., schema: { type: string } }
+    limit: { name: limit, in: query, schema: { type: integer, default: 50, maximum: 1000 } }
+    cursor: { name: cursor, in: query, description: '`nextCursor` from the previous page.', schema: { type: string } }
+    follow: { name: follow, in: query, description: Stream Server-Sent Events., schema: { type: boolean, default: false } }
+
+  responses:
+    BadRequest: { description: Invalid request., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Unauthorized: { description: Missing or wrong bearer token., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    NotFound: { description: 'No such session, execution or file.', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Conflict: { description: Not possible in the current state., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem: { description: See `code`., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code:
+          type: string
+          description: |
+            Stable error code, e.g. session_not_found, session_not_ready,
+            execution_not_found, execution_finished, stdin_closed,
+            file_not_found, file_exists, is_directory, not_directory,
+            directory_not_empty, path_outside_workspace, etag_mismatch,
+            edit_no_match, edit_ambiguous, invalid_request, limit_exceeded,
+            image_not_allowed, runtime_not_enabled, too_many_sessions,
+            unauthorized, internal_error.
+        detail: { type: string }
+        editIndex: { type: integer, description: 'The failing edit, for edit errors.' }
+
+    SessionStatus: { type: string, enum: [creating, ready, stopping, stopped, failed] }
+    ExecutionStatus: { type: string, enum: [running, succeeded, failed, timed_out, killed] }
+    StringMap: { type: object, additionalProperties: { type: string } }
+
+    Resources:
+      type: object
+      properties:
+        cpus: { type: [number, 'null'] }
+        memoryMb: { type: [integer, 'null'], format: int64 }
+        diskMb: { type: [integer, 'null'], format: int64, description: Enforced only when the server enables disk limits. }
+        pids: { type: [integer, 'null'], format: int64 }
+
+    GitSource:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string }
+        ref: { type: [string, 'null'], description: 'Branch, tag or commit; default the remote HEAD.' }
+        depth: { type: [integer, 'null'], description: Shallow clone depth. }
+        env: { $ref: '#/components/schemas/StringMap', description: Environment for the clone only. }
+
+    Source:
+      type: object
+      properties:
+        git: { oneOf: [ { $ref: '#/components/schemas/GitSource' }, { type: 'null' } ] }
+
+    CreateSessionRequest:
+      type: object
+      properties:
+        runtime: { type: [string, 'null'], description: '`docker` or `local`; default from configuration.' }
+        image: { type: [string, 'null'], description: docker only; must be on the allowlist. }
+        env: { $ref: '#/components/schemas/StringMap', description: Default environment of every execution. }
+        resources: { oneOf: [ { $ref: '#/components/schemas/Resources' }, { type: 'null' } ], description: docker only; capped by configuration. }
+        network: { type: [string, 'null'], enum: [full, none, null], description: '`none` is docker only.' }
+        caches:
+          type: array
+          description: Shared dependency caches to mount (docker only).
+          items: { type: string, enum: [maven, gradle, npm, pnpm, yarn, pip] }
+        ttlSeconds: { type: [integer, 'null'], format: int64 }
+        idleTimeoutSeconds: { type: [integer, 'null'], format: int64 }
+        labels: { $ref: '#/components/schemas/StringMap' }
+        source: { oneOf: [ { $ref: '#/components/schemas/Source' }, { type: 'null' } ] }
+
+    UpdateSessionRequest:
+      type: object
+      properties:
+        ttlSeconds: { type: [integer, 'null'], format: int64, description: New lifetime from now. }
+        idleTimeoutSeconds: { type: [integer, 'null'], format: int64 }
+        labels:
+          type: [object, 'null']
+          description: Merged into the labels; a null value removes a label.
+          additionalProperties: { type: [string, 'null'] }
+
+    ExecutionCounts:
+      type: object
+      required: [total, running]
+      properties:
+        total: { type: integer }
+        running: { type: integer }
+
+    Usage:
+      type: object
+      properties:
+        cpuSeconds: { type: [number, 'null'] }
+        memoryPeakMb: { type: [integer, 'null'], format: int64 }
+        memoryCurrentMb: { type: [integer, 'null'], format: int64 }
+
+    Session:
+      type: object
+      required: [id, status, runtime, image, workdir, env, resources, network, caches, labels, createdAt, lastActivityAt, expiresAt, idleTimeoutSeconds, stoppedAt, stopReason, failure, executions, usage]
+      properties:
+        id: { type: string }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        runtime: { type: string }
+        image: { type: [string, 'null'] }
+        workdir: { type: [string, 'null'], description: Workspace root as commands see it. }
+        env: { $ref: '#/components/schemas/StringMap' }
+        resources: { oneOf: [ { $ref: '#/components/schemas/Resources' }, { type: 'null' } ] }
+        network: { type: string, enum: [full, none] }
+        caches: { type: array, items: { type: string } }
+        labels: { $ref: '#/components/schemas/StringMap' }
+        createdAt: { type: string, format: date-time }
+        lastActivityAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        idleTimeoutSeconds: { type: integer, format: int64 }
+        stoppedAt: { type: [string, 'null'], format: date-time }
+        stopReason: { type: [string, 'null'], enum: [deleted, ttl_expired, idle_timeout, failed, server_shutdown, null] }
+        failure: { type: [string, 'null'] }
+        executions: { $ref: '#/components/schemas/ExecutionCounts' }
+        usage: { oneOf: [ { $ref: '#/components/schemas/Usage' }, { type: 'null' } ] }
+
+    SessionPage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Session' } }
+        nextCursor: { type: [string, 'null'] }
+
+    ExecuteRequest:
+      type: object
+      description: Exactly one of `command` and `argv`.
+      properties:
+        command: { type: [string, 'null'], description: 'Run through the runtime shell (see `RuntimeInfo.shell`).' }
+        argv: { type: [array, 'null'], items: { type: string }, description: 'Run directly, without a shell.' }
+        cwd: { type: [string, 'null'], description: Workspace-relative; default the root. }
+        env: { $ref: '#/components/schemas/StringMap', description: Merged over the session env. }
+        stdin: { type: [string, 'null'], description: 'Written to stdin, which is then closed.' }
+        interactive: { type: boolean, default: false, description: 'Keep stdin open for `/stdin`. Otherwise stdin is closed immediately.' }
+        timeoutSeconds: { type: [integer, 'null'], format: int64, default: 1800, description: 'Then SIGTERM, and SIGKILL after a grace period.' }
+        wait: { type: boolean, default: true }
+        waitSeconds: { type: [integer, 'null'], format: int64, default: 300, maximum: 3600 }
+        maxOutputBytes: { type: [integer, 'null'], default: 65536, description: 'Per stream, in the response.' }
+
+    Execution:
+      type: object
+      required: [id, sessionId, status, command, argv, cwd, exitCode, signal, startedAt, finishedAt, durationMs, stdoutBytes, stderrBytes]
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        status: { $ref: '#/components/schemas/ExecutionStatus' }
+        command: { type: [string, 'null'] }
+        argv: { type: [array, 'null'], items: { type: string } }
+        cwd: { type: string }
+        exitCode: { type: [integer, 'null'] }
+        signal: { type: [string, 'null'], enum: [INT, TERM, KILL, HUP, null], description: Last signal sent through the API or by the service. }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        durationMs: { type: [integer, 'null'], format: int64 }
+        stdout: { type: [string, 'null'], description: Excerpt (head and tail) when over maxOutputBytes; absent in lists. }
+        stderr: { type: [string, 'null'] }
+        stdoutBytes: { type: integer, format: int64 }
+        stderrBytes: { type: integer, format: int64 }
+        truncated: { type: [boolean, 'null'] }
+
+    ExecutionPage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Execution' } }
+        nextCursor: { type: [string, 'null'] }
+
+    SignalRequest:
+      type: object
+      required: [signal]
+      properties:
+        signal: { type: string, enum: [INT, TERM, KILL, HUP] }
+
+    OutputChunk:
+      type: object
+      required: [offset, text]
+      properties:
+        offset: { type: integer, format: int64 }
+        text: { type: string }
+
+    Event:
+      type: object
+      required: [seq, at, type, data]
+      properties:
+        seq: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        type:
+          type: string
+          enum: [session.created, session.ready, session.failed, session.updated, session.stopping, session.stopped,
+                 execution.started, execution.output, execution.finished,
+                 file.written, file.edited, file.deleted, file.moved, archive.uploaded]
+        data: { type: object }
+
+    EventPage:
+      type: object
+      required: [items, nextSeq]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Event' } }
+        nextSeq: { type: integer, format: int64 }
+
+    FileEntry:
+      type: object
+      required: [path, type]
+      properties:
+        path: { type: string }
+        type: { type: string, enum: [file, directory, symlink, other] }
+        size: { type: [integer, 'null'], format: int64 }
+        mode: { type: [string, 'null'], description: Octal; null on Windows hosts. }
+        modifiedAt: { type: [string, 'null'], format: date-time }
+        target: { type: [string, 'null'], description: Symlink target. }
+
+    DirectoryListing:
+      type: object
+      required: [path, entries, truncated]
+      properties:
+        path: { type: string }
+        entries: { type: array, items: { $ref: '#/components/schemas/FileEntry' } }
+        truncated: { type: boolean }
+
+    WriteResult:
+      type: object
+      required: [path, size, etag]
+      properties:
+        path: { type: string }
+        size: { type: integer, format: int64 }
+        etag: { type: string }
+
+    Edit:
+      type: object
+      required: [oldText, newText]
+      properties:
+        oldText: { type: string }
+        newText: { type: string }
+        replaceAll: { type: boolean, default: false }
+
+    EditRequest:
+      type: object
+      required: [path, edits]
+      properties:
+        path: { type: string }
+        edits: { type: array, items: { $ref: '#/components/schemas/Edit' } }
+
+    EditResult:
+      type: object
+      required: [path, size, etag, replacements]
+      properties:
+        path: { type: string }
+        size: { type: integer, format: int64 }
+        etag: { type: string }
+        replacements: { type: array, items: { type: integer }, description: 'Occurrences replaced, per edit.' }
+
+    MoveRequest:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        overwrite: { type: boolean, default: false }
+
+    SearchRequest:
+      type: object
+      required: [pattern]
+      properties:
+        pattern: { type: string }
+        regex: { type: boolean, default: false }
+        path: { type: [string, 'null'] }
+        glob: { type: [string, 'null'] }
+        caseSensitive: { type: boolean, default: true }
+        contextLines: { type: integer, default: 0, maximum: 20 }
+        maxResults: { type: integer, default: 200, maximum: 10000 }
+
+    SearchMatch:
+      type: object
+      required: [path, line, column, text, before, after]
+      properties:
+        path: { type: string }
+        line: { type: integer }
+        column: { type: integer }
+        text: { type: string }
+        before: { type: array, items: { type: string } }
+        after: { type: array, items: { type: string } }
+
+    SearchResult:
+      type: object
+      required: [matches, truncated]
+      properties:
+        matches: { type: array, items: { $ref: '#/components/schemas/SearchMatch' } }
+        truncated: { type: boolean }
+
+    RuntimeInfo:
+      type: object
+      required: [name, available, shell, os, networkModes, caches]
+      properties:
+        name: { type: string }
+        available: { type: boolean }
+        unavailableReason: { type: [string, 'null'] }
+        workdir: { type: [string, 'null'] }
+        shell: { type: array, items: { type: string }, description: 'How a `command` string is run.' }
+        os: { type: string }
+        images: { type: [array, 'null'], items: { type: string } }
+        defaultImage: { type: [string, 'null'] }
+        defaultResources: { oneOf: [ { $ref: '#/components/schemas/Resources' }, { type: 'null' } ] }
+        maxResources: { oneOf: [ { $ref: '#/components/schemas/Resources' }, { type: 'null' } ] }
+        diskLimitEnforced: { type: [boolean, 'null'] }
+        networkModes: { type: array, items: { type: string } }
+        caches: { type: array, items: { type: string } }
+
+    Info:
+      type: object
+      required: [name, version, defaultRuntime, runtimes, defaultTtlSeconds, maxTtlSeconds, defaultIdleTimeoutSeconds, maxSessions]
+      properties:
+        name: { type: string }
+        version: { type: string }
+        defaultRuntime: { type: string }
+        runtimes: { type: array, items: { $ref: '#/components/schemas/RuntimeInfo' } }
+        defaultTtlSeconds: { type: integer, format: int64 }
+        maxTtlSeconds: { type: integer, format: int64 }
+        defaultIdleTimeoutSeconds: { type: integer, format: int64 }
+        maxSessions: { type: integer }
