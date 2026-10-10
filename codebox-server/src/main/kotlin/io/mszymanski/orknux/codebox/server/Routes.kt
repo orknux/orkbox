@@ -58,6 +58,10 @@ fun Application.routes(codebox: Codebox, token: String?, version: String) {
             else call.respondText(reasons.joinToString("\n"), status = HttpStatusCode.ServiceUnavailable)
         }
 
+        val openApi = OpenApi.document(version)
+        get("/openapi.yaml") { call.respondText(openApi, ContentType("application", "yaml")) }
+        get("/docs") { call.respondText(OpenApi.SWAGGER_UI, ContentType.Text.Html) }
+
         route("/v1") {
             install(BearerAuth) { this.token = token }
 
@@ -300,7 +304,7 @@ private suspend fun ApplicationCall.output(execution: Execution) {
 }
 
 @Serializable
-private data class OutputChunk(val offset: Long, val text: String)
+internal data class OutputChunk(val offset: Long, val text: String)
 
 // ---- helpers --------------------------------------------------------------------------------
 

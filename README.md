@@ -115,6 +115,11 @@ curl -s -H 'Authorization: Bearer change-me' -H 'Content-Type: application/json'
      localhost:8080/v1/sessions
 ```
 
+The OpenAPI 3.1 document is served at `/openapi.yaml` and browsable at
+`/docs` (Swagger UI), both without a token. It is maintained by hand in
+`codebox-server/src/main/resources/openapi.yaml`; a test fails when it no
+longer matches the routes or the model classes.
+
 ### Configuration
 
 Environment variables (or system properties: `CODEBOX_MAX_SESSIONS` ->

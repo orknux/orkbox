@@ -387,6 +387,8 @@ commands run as the service's own OS user.
 | `GET /v1/info` | version, enabled runtimes, allowed images, default and maximum limits, available caches |
 | `GET /healthz` | liveness |
 | `GET /readyz` | readiness (runtime backends reachable, e.g. Docker daemon) |
+| `GET /openapi.yaml` | this API as an OpenAPI 3.1 document (no token needed) |
+| `GET /docs` | Swagger UI for it (no token needed) |
 
 ---
 
