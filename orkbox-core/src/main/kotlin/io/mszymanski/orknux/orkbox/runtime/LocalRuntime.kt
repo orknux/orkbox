@@ -190,7 +190,7 @@ class LocalSandbox(
         if (path.isEmpty()) throw ApiException.badRequest("cannot_delete_root", "The workspace root cannot be deleted")
         val file = resolve(path)
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) throw ApiException.fileNotFound(path)
-        if (recursive && Files.isDirectory(file, LinkOption.NOFOLLOW_LINKS)) deleteTree(file)
+        if (recursive && Files.isDirectory(file, LinkOption.NOFOLLOW_LINKS)) deleteTreeOrSay(file, path)
         else try {
             Files.delete(file)
         } catch (_: DirectoryNotEmptyException) {
@@ -205,7 +205,7 @@ class LocalSandbox(
         if (!Files.exists(source, LinkOption.NOFOLLOW_LINKS)) throw ApiException.fileNotFound(from)
         if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             if (!overwrite) throw ApiException.conflict("file_exists", "$to already exists; pass overwrite=true")
-            if (Files.isDirectory(target, LinkOption.NOFOLLOW_LINKS)) deleteTree(target)
+            if (Files.isDirectory(target, LinkOption.NOFOLLOW_LINKS)) deleteTreeOrSay(target, to)
         }
         target.parent.createDirectories()
         val options = if (overwrite) arrayOf(StandardCopyOption.REPLACE_EXISTING) else emptyArray()
@@ -246,6 +246,27 @@ class LocalSandbox(
     override suspend fun destroy() = withContext(Dispatchers.IO) { deleteTree(root) }
 }
 
+/**
+ * [deleteTree] for a caller that was asked to delete something and must say
+ * whether it did. On Windows a file a running process holds open cannot be
+ * deleted, and the best-effort walk skipped it silently - so a delete of a
+ * build directory whose jar was still running answered "deleted" and left the
+ * directory there.
+ */
+internal fun deleteTreeOrSay(path: Path, asked: String) {
+    deleteTree(path)
+    if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return
+    val left = Files.walk(path).use { stream -> stream.filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }.limit(1000).toList() }
+    val example = left.firstOrNull()?.let { path.relativize(it).toString().replace('\\', '/') }
+    throw ApiException.conflict(
+        "delete_incomplete",
+        "$asked was not fully deleted: ${left.size} file(s) remain" +
+            (example?.let { ", e.g. $it" } ?: "") +
+            ". A running process may be holding them open - stop it and delete again.",
+    )
+}
+
+/** Deletes what it can and skips the rest: right for cleaning up, wrong for answering a request. */
 internal fun deleteTree(path: Path) {
     if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return
     Files.walk(path).use { stream ->

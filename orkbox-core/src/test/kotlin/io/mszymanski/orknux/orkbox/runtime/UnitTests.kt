@@ -18,6 +18,30 @@ class RipgrepArgsTest {
     }
 }
 
+class DeleteTreeOrSayTest {
+    @Test
+    fun `a tree deleted whole says nothing`() {
+        val dir = java.nio.file.Files.createTempDirectory("orkbox-delete")
+        java.nio.file.Files.writeString(dir.resolve("a.txt"), "a")
+        deleteTreeOrSay(dir, "target")
+        assertFalse(java.nio.file.Files.exists(dir))
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
+    fun `a file held open on Windows is reported rather than passed over`() {
+        val dir = java.nio.file.Files.createTempDirectory("orkbox-delete")
+        val held = dir.resolve("app.jar")
+        java.nio.file.Files.writeString(held, "jar")
+        java.io.FileInputStream(held.toFile()).use {
+            val refused = assertFailsWith<ApiException> { deleteTreeOrSay(dir, "target") }
+            assertEquals("delete_incomplete", refused.code)
+            assertTrue(refused.detail.orEmpty().contains("app.jar"))
+        }
+        deleteTree(dir)
+    }
+}
+
 class WorkspacePathTest {
     @Test
     fun `relative paths are normalised`() {
