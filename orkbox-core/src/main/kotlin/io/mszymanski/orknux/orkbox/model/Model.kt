@@ -135,7 +135,16 @@ data class DirectoryListing(val path: String, val entries: List<FileEntry>, val 
 data class WriteResult(val path: String, val size: Long, val etag: String)
 
 @Serializable
-data class Edit(val oldText: String, val newText: String, val replaceAll: Boolean = false)
+data class Edit(
+    /** The text to replace; or, with [startLine], what those lines must hold - a guard, optional there. */
+    val oldText: String? = null,
+    val newText: String,
+    val replaceAll: Boolean = false,
+    /** Replace lines [startLine]..[endLine] (1-based, inclusive) instead of matching text. */
+    val startLine: Int? = null,
+    /** The last line replaced; [startLine] when left out. */
+    val endLine: Int? = null,
+)
 
 @Serializable
 data class EditRequest(val path: String, val edits: List<Edit>)

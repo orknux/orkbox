@@ -711,11 +711,14 @@ components:
 
     Edit:
       type: object
-      required: [oldText, newText]
+      description: 'Either oldText to find and replace, or startLine (and endLine) to replace those lines; with lines, oldText is an optional guard.'
+      required: [newText]
       properties:
-        oldText: { type: string }
+        oldText: { type: [string, 'null'] }
         newText: { type: string }
         replaceAll: { type: boolean, default: false }
+        startLine: { type: [integer, 'null'], description: 'First line to replace, 1-based.' }
+        endLine: { type: [integer, 'null'], description: 'Last line to replace, inclusive; startLine when left out.' }
 
     EditRequest:
       type: object

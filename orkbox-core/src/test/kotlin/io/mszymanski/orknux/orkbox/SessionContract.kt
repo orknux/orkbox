@@ -61,6 +61,33 @@ abstract class SessionContract {
     }
 
     @Test
+    fun `lines are replaced by number, guarded by what they held`() = runBlocking {
+        val files = orkbox.files
+        files.write(session, "lines.txt", "a\nb\nc\nd\n".toByteArray(), null, null)
+        files.edit(session, EditRequest("lines.txt", listOf(Edit(newText = "B\nB2", startLine = 2, endLine = 3))))
+        assertEquals("a\nB\nB2\nd\n", String(files.read(session, "lines.txt", null, null).bytes))
+        val stale = assertFailsWith<ApiException> {
+            files.edit(session, EditRequest("lines.txt", listOf(Edit(oldText = "b", newText = "x", startLine = 2))))
+        }
+        assertEquals("edit_no_match", stale.code)
+        val outside = assertFailsWith<ApiException> {
+            files.edit(session, EditRequest("lines.txt", listOf(Edit(newText = "x", startLine = 9))))
+        }
+        assertEquals("edit_bad_lines", outside.code)
+        files.write(session, "crlf.txt", "a\r\nb\r\n".toByteArray(), null, null)
+        files.edit(session, EditRequest("crlf.txt", listOf(Edit(newText = "B", startLine = 2))))
+        assertEquals("a\r\nB\r\n", String(files.read(session, "crlf.txt", null, null).bytes))
+    }
+
+    @Test
+    fun `an edit written with LF lines matches a CRLF file and keeps its endings`() = runBlocking {
+        val files = orkbox.files
+        files.write(session, "win.txt", "one\r\ntwo\r\nthree\r\n".toByteArray(), null, null)
+        files.edit(session, EditRequest("win.txt", listOf(Edit("one\ntwo\n", "one\n2\n"))))
+        assertEquals("one\r\n2\r\nthree\r\n", String(files.read(session, "win.txt", null, null).bytes))
+    }
+
+    @Test
     fun `files can be written, read, edited, moved and deleted`() = runBlocking {
         val files = orkbox.files
         val written = files.write(session, "src/hello.txt", "one\ntwo\nthree\n".toByteArray(), null, null)

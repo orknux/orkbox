@@ -301,9 +301,19 @@ Search-and-replace edits, the format agents already use:
 }
 ```
 
-Edits apply in order, atomically (all or none). An `oldText` that matches zero
-times — or more than once without `replaceAll` — fails with `edit_no_match` /
-`edit_ambiguous` (`422`, with `editIndex` in the problem). Returns `{ "path", "size", "etag",
+Or by line numbers, from a read or a search - `oldText` is then an optional
+guard that the lines still hold it:
+
+```json
+{ "path": "src/App.kt", "edits": [ { "startLine": 12, "endLine": 14, "newText": "val port = config.port" } ] }
+```
+
+Edits apply in order, atomically (all or none); line numbers refer to the file
+as the edits before them left it, so give several line edits bottom-up. An
+`oldText` that matches zero times — or more than once without `replaceAll` —
+fails with `edit_no_match` / `edit_ambiguous` (`422`, with `editIndex` in the
+problem); lines outside the file fail with `edit_bad_lines`. A file with CRLF
+lines is matched by text with LF ones and keeps its endings. Returns `{ "path", "size", "etag",
 "replacements": [1, 7] }`.
 
 ### `GET /v1/sessions/{id}/files?path=…` — list a directory

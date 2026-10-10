@@ -175,19 +175,32 @@ class SessionManager(
         val steps = if (ref != null && Regex("[0-9a-fA-F]{7,40}").matches(ref)) {
             listOf(
                 listOf("git", "init", "--quiet", "."),
+                listOf("git", "config", "core.autocrlf", "false"),
                 listOf("git", "remote", "add", "origin", source.url),
                 listOf("git", "fetch", "--quiet") + depth + listOf("origin", ref),
                 listOf("git", "checkout", "--quiet", "FETCH_HEAD"),
             )
         } else {
-            listOf(listOf("git", "clone", "--quiet") + depth + (ref?.let { listOf("--branch", it) } ?: emptyList()) + listOf("--", source.url, "."))
+            /*
+             * The repository's own line endings, whatever the host's git is set
+             * to: Git for Windows checks out CRLF by default, and a model reading
+             * a file with \r in every line copies it into the text it asks to
+             * replace - which then matches nothing.
+             */
+            listOf(
+                listOf("git", "-c", "core.autocrlf=false", "clone", "--quiet") + depth +
+                    (ref?.let { listOf("--branch", it) } ?: emptyList()) + listOf("--", source.url, "."),
+                listOf("git", "config", "core.autocrlf", "false"),
+            )
         }
         for (argv in steps) {
             val execution = execute(session, ExecuteRequest(argv = argv, env = env, timeoutSeconds = 1800, wait = false))
             execution.done.await()
             if (execution.status != ExecutionStatus.SUCCEEDED) {
                 val reason = execution.stderr.excerpt(2000).text.trim().ifEmpty { "exit code ${execution.exitCode}" }
-                throw IllegalStateException("git ${argv[1]} failed: $reason")
+                // The subcommand, past any "-c name=value" options in front of it.
+                val step = argv.drop(1).filterIndexed { i, it -> !it.startsWith("-") && (i == 0 || argv[i] != "-c") }.firstOrNull() ?: argv[1]
+                throw IllegalStateException("git $step failed: $reason")
             }
         }
     }

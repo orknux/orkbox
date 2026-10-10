@@ -3,6 +3,7 @@ package io.mszymanski.orknux.orkbox.session
 import io.mszymanski.orknux.orkbox.ApiException
 import io.mszymanski.orknux.orkbox.Config
 import io.mszymanski.orknux.orkbox.model.DirectoryListing
+import io.mszymanski.orknux.orkbox.model.Edit
 import io.mszymanski.orknux.orkbox.model.EditRequest
 import io.mszymanski.orknux.orkbox.model.EditResult
 import io.mszymanski.orknux.orkbox.model.FileEntry
@@ -71,14 +72,33 @@ class FileService {
         var text = String(bytes, Charsets.UTF_8)
         val counts = ArrayList<Int>()
         for ((index, edit) in request.edits.withIndex()) {
-            if (edit.oldText.isEmpty()) throw edit(index, "edit_no_match", "oldText must not be empty")
-            val count = occurrences(text, edit.oldText)
+            if (edit.startLine != null) {
+                text = byLines(text, edit, index, request.path)
+                counts += 1
+                continue
+            }
+            val asked = edit.oldText
+            if (asked.isNullOrEmpty()) throw edit(index, "edit_no_match", "oldText must not be empty")
+            /*
+             * Line endings are not the edit. A file with CRLF lines is matched by
+             * text written with LF ones - which is how a caller writes it - and the
+             * replacement takes the file's endings, so an edit neither fails on
+             * them nor leaves a file with two kinds.
+             */
+            var old: String = asked
+            var new = edit.newText
+            if (occurrences(text, old) == 0 && text.contains("\r\n")) {
+                val crlf = { s: String -> s.replace("\r\n", "\n").replace("\n", "\r\n") }
+                old = crlf(old)
+                new = crlf(new)
+            }
+            val count = occurrences(text, old)
             when {
                 count == 0 -> throw edit(index, "edit_no_match", "Edit $index: oldText not found in ${request.path}")
                 count > 1 && !edit.replaceAll -> throw edit(index, "edit_ambiguous",
                     "Edit $index: oldText occurs $count times in ${request.path}; make it unique or set replaceAll")
             }
-            text = if (edit.replaceAll) text.replace(edit.oldText, edit.newText) else text.replaceFirst(edit.oldText, edit.newText)
+            text = if (edit.replaceAll) text.replace(old, new) else text.replaceFirst(old, new)
             counts += count
         }
         val updated = text.toByteArray()
@@ -88,6 +108,37 @@ class FileService {
             putJsonArray("replacements") { counts.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
         })
         return EditResult(relative, updated.size.toLong(), etag(updated), counts)
+    }
+
+    /**
+     * Lines [Edit.startLine]..[Edit.endLine] replaced by [Edit.newText], which is
+     * how a caller holding line numbers from a read or a search edits without
+     * copying the text back exactly. An [Edit.oldText] given with them is a
+     * guard: the lines must hold it, or the file changed since they were read.
+     * The file's own line endings are kept.
+     */
+    private fun byLines(text: String, edit: Edit, index: Int, path: String): String {
+        val crlf = text.contains("\r\n")
+        val eol = if (crlf) "\r\n" else "\n"
+        val lines = text.split(eol).toMutableList()
+        val endsWithNewline = lines.lastOrNull() == ""
+        if (endsWithNewline) lines.removeAt(lines.lastIndex)
+        val from = edit.startLine!!
+        val to = edit.endLine ?: from
+        if (from < 1 || to < from || to > lines.size) {
+            throw edit(index, "edit_bad_lines", "Edit $index: lines $from..$to are not in $path, which has ${lines.size} lines")
+        }
+        val current = lines.subList(from - 1, to).joinToString("\n")
+        edit.oldText?.let { guard ->
+            if (guard.replace("\r\n", "\n").trimEnd('\n') != current) {
+                throw edit(index, "edit_no_match", "Edit $index: lines $from..$to of $path do not hold oldText; read them again")
+            }
+        }
+        val replacement = edit.newText.replace("\r\n", "\n").removeSuffix("\n")
+        val replaced = if (replacement.isEmpty()) emptyList() else replacement.split("\n")
+        repeat(to - from + 1) { lines.removeAt(from - 1) }
+        lines.addAll(from - 1, replaced)
+        return lines.joinToString(eol) + if (endsWithNewline) eol else ""
     }
 
     private fun edit(index: Int, code: String, detail: String) =
