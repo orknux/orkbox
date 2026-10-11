@@ -293,7 +293,8 @@ async function loadDetail(d){
 async function loadEvents(d){
   try{
     const q=new URLSearchParams({since:String(d.nextSeq),limit:'300'});
-    if(!d.includeOutput)q.set('types','session.created,session.ready,session.failed,session.updated,session.stopping,session.stopped,execution.started,execution.finished,file.written,file.edited,file.deleted,file.moved,archive.uploaded');
+    const evTypes='session.created,session.ready,session.failed,session.updated,session.stopping,session.stopped,execution.started,execution.finished,file.written,file.edited,file.deleted,file.moved,archive.uploaded';
+    q.set('types',d.includeOutput?'execution.output,'+evTypes:evTypes);
     const page=await api('/v1/sessions/'+d.id+'/logs?'+q);
     d.events=d.events.concat(page.items);
     if(d.events.length>800)d.events=d.events.slice(-800);

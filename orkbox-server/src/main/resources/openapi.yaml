@@ -849,7 +849,7 @@ components:
         diskTotalMb: { type: [integer, 'null'], format: int64, description: The file system holding the local workspaces. }
         diskUsedMb: { type: [integer, 'null'], format: int64 }
         jvmUsedMb: { type: [integer, 'null'], format: int64 }
-        jvmMaxMb: { type: [integer, 'null'], format: int64, description: '−1 when the heap is unbounded.' }
+        jvmMaxMb: { type: [integer, 'null'], format: int64, description: 'The JVM heap cap, in MB; absent where the JVM cannot report it.' }
 
     SystemSessions:
       type: object

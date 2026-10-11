@@ -383,7 +383,7 @@ private fun hostInfo(config: Config): HostInfo {
         diskTotalMb = disk?.let { it.first / MB },
         diskUsedMb = disk?.let { it.second / MB },
         jvmUsedMb = heap.used / MB,
-        jvmMaxMb = heap.max / MB,
+        jvmMaxMb = (heap.max / MB).takeIf { it > 0 },
     )
 }
 
