@@ -124,7 +124,9 @@ The server also has a built-in UI, served without a token at `/` and `/ui`:
 the running sessions and their logs, a stop button for each, and a server
 overview — uptime, host CPUs, memory, disk, JVM heap, and the CPU and memory
 limits of every active session, backed by `GET /v1/system`. The page asks the
-browser for the bearer token and sends it with every API call.
+browser for the bearer token and sends it with every API call; when the
+server runs with `ORKBOX_USER`/`ORKBOX_PASSWORD` it shows a user/password
+form instead and signs in through `POST /v1/login`.
 
 ### Configuration
 
@@ -133,8 +135,9 @@ Environment variables (or system properties: `ORKBOX_MAX_SESSIONS` ->
 
 | variable | default | meaning |
 |---|---|---|
-| `ORKBOX_TOKEN` | — | Bearer token clients must send. Required. |
-| `ORKBOX_INSECURE_NO_AUTH` | `false` | Run without a token (development only). |
+| `ORKBOX_TOKEN` | — | Bearer token clients must send. Required unless `ORKBOX_USER` and `ORKBOX_PASSWORD` are set, or `ORKBOX_INSECURE_NO_AUTH`. |
+| `ORKBOX_USER` / `ORKBOX_PASSWORD` | — | When both are set, clients can log in with `POST /v1/login` instead of knowing a token (the built-in UI's mode). |
+| `ORKBOX_INSECURE_NO_AUTH` | `false` | Run without authentication (development only). |
 | `ORKBOX_HOST` / `ORKBOX_PORT` | `0.0.0.0` / `8080` | Listen address. |
 | `ORKBOX_RUNTIMES` | `docker` | Enabled runtimes, e.g. `docker,local`. |
 | `ORKBOX_DEFAULT_RUNTIME` | first enabled | Runtime for requests that don't name one. |

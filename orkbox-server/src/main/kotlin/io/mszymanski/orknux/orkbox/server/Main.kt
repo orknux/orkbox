@@ -13,8 +13,11 @@ import kotlin.system.exitProcess
 data class ServerConfig(
     val host: String = "0.0.0.0",
     val port: Int = 8080,
-    /** Shared bearer token. Null only when [insecureNoAuth] is set. */
+    /** Shared bearer token clients must send. */
     val token: String? = null,
+    /** When set with [password], clients can `POST /v1/login` instead of knowing [token]. */
+    val user: String? = null,
+    val password: String? = null,
     val insecureNoAuth: Boolean = false,
 ) {
     companion object {
@@ -24,12 +27,30 @@ data class ServerConfig(
                 host = str("ORKBOX_HOST") ?: "0.0.0.0",
                 port = str("ORKBOX_PORT")?.toInt() ?: 8080,
                 token = str("ORKBOX_TOKEN"),
+                user = str("ORKBOX_USER"),
+                password = str("ORKBOX_PASSWORD"),
                 insecureNoAuth = str("ORKBOX_INSECURE_NO_AUTH")?.toBooleanStrict() ?: false,
             )
-            require(config.token != null || config.insecureNoAuth) {
-                "ORKBOX_TOKEN is not set. Set it, or set ORKBOX_INSECURE_NO_AUTH=true to run without authentication."
-            }
+            config.validate()
             return config
+        }
+    }
+
+    /** How the API is authenticated; resolved once, shared by the routes and the UI. */
+    val auth: Auth = when {
+        insecureNoAuth -> Auth.None
+        token != null -> Auth.Token(token)
+        user != null && password != null -> Auth.UserPass(user, password)
+        else -> Auth.None
+    }
+
+    fun validate() {
+        require((user == null) == (password == null)) {
+            "ORKBOX_USER and ORKBOX_PASSWORD must be set together."
+        }
+        val hasUserPass = user != null && password != null
+        require(token != null || hasUserPass || insecureNoAuth) {
+            "No authentication configured. Set ORKBOX_TOKEN, or ORKBOX_USER and ORKBOX_PASSWORD, or ORKBOX_INSECURE_NO_AUTH=true to run without authentication."
         }
     }
 }
@@ -39,7 +60,7 @@ val version: String = Orkbox::class.java.`package`?.implementationVersion ?: "de
 /** Mounts the Session API for [orkbox] on this application. */
 fun Application.orkbox(orkbox: Orkbox, server: ServerConfig) {
     installHttp()
-    routes(orkbox, server.token.takeUnless { server.insecureNoAuth }, version)
+    routes(orkbox, server.auth, version)
 }
 
 fun main() {
@@ -50,9 +71,13 @@ fun main() {
         log.error(e.message)
         exitProcess(2)
     }
-    if (server.insecureNoAuth) log.warn("Authentication is disabled (ORKBOX_INSECURE_NO_AUTH=true)")
     val orkbox = Orkbox(config).start()
     log.info("orkbox {} on {}:{}, runtimes {}", version, server.host, server.port, config.runtimes)
+    when (server.auth) {
+        is Auth.None -> log.warn("Authentication is disabled (ORKBOX_INSECURE_NO_AUTH=true)")
+        is Auth.Token -> log.info("authentication: bearer token")
+        is Auth.UserPass -> log.info("authentication: user/password (login at /v1/login)")
+    }
     embeddedServer(CIO, port = server.port, host = server.host) {
         orkbox(orkbox, server)
         monitor.subscribe(ApplicationStopping) { orkbox.close() }

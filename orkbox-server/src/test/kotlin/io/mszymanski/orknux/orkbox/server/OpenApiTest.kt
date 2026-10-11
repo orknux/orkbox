@@ -26,6 +26,9 @@ import io.mszymanski.orknux.orkbox.model.HostInfo
 import io.mszymanski.orknux.orkbox.model.Info
 import io.mszymanski.orknux.orkbox.model.MoveRequest
 import io.mszymanski.orknux.orkbox.model.Resources
+import io.mszymanski.orknux.orkbox.model.AuthInfo
+import io.mszymanski.orknux.orkbox.model.LoginRequest
+import io.mszymanski.orknux.orkbox.model.LoginResponse
 import io.mszymanski.orknux.orkbox.model.RuntimeInfo
 import io.mszymanski.orknux.orkbox.model.SearchMatch
 import io.mszymanski.orknux.orkbox.model.SearchRequest
@@ -113,6 +116,9 @@ class OpenApiTest {
             "SearchResult" to SearchResult.serializer(),
             "RuntimeInfo" to RuntimeInfo.serializer(),
             "Info" to Info.serializer(),
+            "AuthInfo" to AuthInfo.serializer(),
+            "LoginRequest" to LoginRequest.serializer(),
+            "LoginResponse" to LoginResponse.serializer(),
             "HostInfo" to HostInfo.serializer(),
             "SystemSessions" to SystemSessions.serializer(),
             "SystemInfo" to SystemInfo.serializer(),

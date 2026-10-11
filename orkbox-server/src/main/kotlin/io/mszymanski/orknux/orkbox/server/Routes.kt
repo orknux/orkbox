@@ -45,6 +45,7 @@ import com.sun.management.OperatingSystemMXBean
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 
@@ -53,10 +54,15 @@ private const val MAX_WAIT_SECONDS = 3600L
 private const val DEFAULT_MAX_OUTPUT = 65536
 private const val HEARTBEAT_MS = 15_000L
 
-fun Application.routes(orkbox: Orkbox, token: String?, version: String) {
+fun Application.routes(orkbox: Orkbox, auth: Auth, version: String) {
     val manager = orkbox.sessions
     val files = orkbox.files
     val config = manager.config
+    fun authCheck(auth: Auth): (String) -> Boolean = when (auth) {
+        is Auth.None -> { _ -> true }
+        is Auth.Token -> { given -> MessageDigest.isEqual(auth.token.toByteArray(), given.toByteArray()) }
+        is Auth.UserPass -> auth::checkToken
+    }
     routing {
         get("/healthz") { call.respondText("ok") }
         get("/readyz") {
@@ -75,7 +81,24 @@ fun Application.routes(orkbox: Orkbox, token: String?, version: String) {
         get("/") { call.respondBytes(uiPage, ContentType.Text.Html) }
 
         route("/v1") {
-            install(BearerAuth) { this.token = token }
+            if (auth !is Auth.None) {
+                install(BearerAuth) {
+                    check = authCheck(auth)
+                    exempt = { it == "/v1/auth" || it == "/v1/login" }
+                }
+            }
+
+            get("/auth") { call.respondJson(AuthInfo(when (auth) { is Auth.None -> "none"; is Auth.Token -> "token"; is Auth.UserPass -> "userpass" })) }
+            post("/login") {
+                val userPass = auth as? Auth.UserPass
+                    ?: return@post call.respondProblem(ApiException(400, "login_unavailable", "Login unavailable", "User authentication is not enabled on this server."))
+                val request = call.receiveJson<LoginRequest>()
+                if (!userPass.verify(request.user, request.password)) {
+                    call.respondProblem(ApiException(401, "unauthorized", "Unauthorized", "Wrong user or password"))
+                    return@post
+                }
+                call.respondJson(LoginResponse(token = userPass.issueToken()))
+            }
 
             get("/info") {
                 call.respondJson(Info(

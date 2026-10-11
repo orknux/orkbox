@@ -200,6 +200,18 @@ data class Info(
     val maxSessions: Int,
 )
 
+/** Credentials for `POST /v1/login`, where user authentication is on. */
+@Serializable
+data class LoginRequest(val user: String, val password: String)
+
+/** A bearer token minted by `POST /v1/login`. */
+@Serializable
+data class LoginResponse(val token: String)
+
+/** How the server is authenticated, as `GET /v1/auth` reports it. */
+@Serializable
+data class AuthInfo(val mode: String)
+
 @Serializable
 data class HostInfo(
     val os: String,

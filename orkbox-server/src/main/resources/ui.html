@@ -25,6 +25,10 @@ nav{display:flex;gap:6px}
 .auth input:focus{outline:none;border-color:var(--accent)}
 #tokenLabel{font-size:13px;color:var(--dim);white-space:nowrap}
 #authState{color:var(--dim);font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#authBox{display:flex;align-items:center;gap:6px}
+#authBox input{background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 9px;font:inherit;width:150px}
+#authBox input:focus{outline:none;border-color:var(--accent)}
+.signedin{font-size:13px;color:var(--dim);white-space:nowrap}
 main{padding:16px;max-width:1280px;margin:0 auto}
 section[hidden]{display:none}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:12px}
@@ -97,9 +101,7 @@ a:hover{text-decoration:underline}
     <button class="tab" data-tab="sessions">Sessions<span class="badge" id="sessCount" hidden></span></button>
   </nav>
   <div class="auth">
-    <label for="token" class="dim" id="tokenLabel">API token</label>
-    <input id="token" type="password" placeholder="bearer token" autocomplete="off" spellcheck="false">
-    <button id="tokenReveal" class="dim" title="show / hide the token">show</button>
+    <span id="authBox"></span>
     <span id="authState"></span>
   </div>
 </header>
@@ -139,6 +141,7 @@ const dur=ms=>ms==null?'—':ms<1000?ms+'ms':ms<60000?(ms/1000).toFixed(1)+'s':(
 const mb=n=>n==null?'—':n>=1024?(n/1024).toFixed(1)+' GiB':n+' MiB';
 
 const state={
+  authMode:null,
   token:localStorage.getItem('orkbox.token')||'',
   tab:'overview',
   system:null,
@@ -146,10 +149,50 @@ const state={
   tick:0,
   details:new Map(),
 };
-$('#token').value=state.token;
-$('#token').addEventListener('change',e=>{state.token=e.target.value.trim();localStorage.setItem('orkbox.token',state.token);$('#authState').textContent='';refresh()});
-$('#tokenReveal').addEventListener('click',()=>{const t=$('#token');const show=t.type==='password';t.type=show?'text':'password';$('#tokenReveal').textContent=show?'hide':'show'});
 
+function renderAuthBox(){
+  const box=$('#authBox');
+  if(!box)return;
+  if(state.authMode==='userpass'){
+    if(state.token){
+      box.innerHTML='<span class="signedin">signed in</span><button id="signOut">sign out</button>';
+      $('#signOut').addEventListener('click',()=>{state.token='';localStorage.removeItem('orkbox.token');$('#authState').textContent='';renderAuthBox();refresh()});
+      return;
+    }
+    box.innerHTML='<label for="loginUser" class="dim">user</label>'
+      +'<input id="loginUser" autocomplete="off" spellcheck="false" placeholder="username">'
+      +'<input id="loginPass" type="password" placeholder="password" autocomplete="off" spellcheck="false">'
+      +'<button id="loginBtn">sign in</button>';
+    $('#loginBtn').addEventListener('click',doLogin);
+    for(const id of ['loginUser','loginPass'])$('#'+id).addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+  }else if(state.authMode==='token'){
+    box.innerHTML='<label for="token" class="dim">API token</label>'
+      +'<input id="token" type="password" placeholder="bearer token" autocomplete="off" spellcheck="false">'
+      +'<button id="tokenReveal" class="dim" title="show / hide the token">show</button>';
+    $('#token').value=state.token;
+    $('#token').addEventListener('change',e=>{state.token=e.target.value.trim();localStorage.setItem('orkbox.token',state.token);$('#authState').textContent='';refresh()});
+    $('#tokenReveal').addEventListener('click',()=>{const t=$('#token');const show=t.type==='password';t.type=show?'text':'password';$('#tokenReveal').textContent=show?'hide':'show'});
+  }else if(state.authMode==='none'){
+    box.innerHTML='<span class="signedin">no auth required</span>';
+  }
+}
+async function doLogin(){
+  const user=$('#loginUser').value.trim(),pass=$('#loginPass').value;
+  if(!user||!pass)return;
+  let res;
+  try{res=await fetch('/v1/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user,password:pass})})}
+  catch(e){$('#authState').textContent='network error: '+e.message;return}
+  if(!res.ok){
+    let b;try{b=await res.json()}catch(e){b={}}
+    $('#authState').textContent=b.detail||b.title||('login failed ('+res.status+')');
+    return;
+  }
+  state.token=(await res.json()).token;
+  localStorage.setItem('orkbox.token',state.token);
+  $('#authState').textContent='';
+  renderAuthBox();
+  refresh();
+}
 async function api(path,opts={}){
   const headers=Object.assign({},opts.headers||{});
   if(state.token)headers['Authorization']='Bearer '+state.token;
@@ -158,11 +201,14 @@ async function api(path,opts={}){
   const ct=res.headers.get('content-type')||'';
   const body=ct.includes('json')?await res.json():await res.text();
   if(!res.ok){
-    if(res.status===401)$('#authState').textContent='token rejected — enter the server\u2019s bearer token';
+    if(res.status===401){
+      if(state.authMode==='userpass'){state.token='';localStorage.removeItem('orkbox.token');renderAuthBox();$('#authState').textContent='session expired — sign in again'}
+      else $('#authState').textContent='token rejected — enter the server\u2019s bearer token';
+    }
     const msg=body&&typeof body==='object'?(body.detail||body.title||res.status):String(body);
     throw new Error(msg);
   }
-  if(!state.token)$('#authState').textContent='connected (no auth required)';
+  if(state.authMode==='none')$('#authState').textContent='connected (no auth required)';
   return body;
 }
 async function fetchOutput(sid,execId,stream,offset){
@@ -230,7 +276,7 @@ async function loadSystem(){
     if(!fr.dataset.filled){fr.dataset.filled='1';i.runtimes.forEach(r=>{const o=document.createElement('option');o.value=o.textContent=r.name;fr.appendChild(o)})}
   }catch(e){
     $('#sysError').hidden=false;
-    $('#sysError').innerHTML='<h2>Cannot reach the API</h2><div class="mono">'+esc(e.message)+'</div><div class="dim" style="font-size:12px;margin-top:6px">Enter the bearer token in the top right (or check the server URL).</div>';
+    $('#sysError').innerHTML='<h2>Cannot reach the API</h2><div class="mono">'+esc(e.message)+'</div><div class="dim" style="font-size:12px;margin-top:6px">Sign in in the top right, or check the server URL.</div>';
   }
 }
 
@@ -459,6 +505,7 @@ function refresh(){
   (async()=>{
     state.tick++;
     try{
+      if(!state.authMode){state.authMode=(await api('/v1/auth')).mode;renderAuthBox()}
       if(state.tick%3===1||!state.system)await loadSystem();
       if(state.tab==='sessions')await loadSessions();
       for(const [id,d] of state.details){
