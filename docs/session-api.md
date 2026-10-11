@@ -7,10 +7,21 @@ in-process through `orkbox-core` (see the README), with the same error codes.
 
 - Base path `/v1`. JSON bodies, `camelCase` fields, timestamps in RFC 3339 UTC.
 - IDs are opaque strings with a type prefix: `ses_…`, `exe_…`.
-- Authentication: `Authorization: Bearer <token>`, a static shared secret
-  configured on both orknux-server and orkbox. orkbox has no
-  users; tenancy and ownership are expressed by orknux-server through
-  **labels** (e.g. `workspace`, `run`, `agent`).
+- Authentication, one of three modes set on the server:
+  - **token** — `Authorization: Bearer <token>`, a static shared secret
+    (`ORKBOX_TOKEN`) configured on both orknux-server and orkbox. This is the
+    default; orknux-server holds the token and sends it.
+  - **userpass** — a known user (`ORKBOX_USER`) logs in once against
+    `POST /v1/login` with their password (`ORKBOX_PASSWORD`) and receives a
+    bearer token to send as above. No static secret to distribute, which is
+    what the built-in UI is for.
+  - **none** — no authentication (`ORKBOX_INSECURE_NO_AUTH=true`, development
+    only).
+
+  `GET /v1/auth` reports which mode is in effect; `/v1/auth` and `/v1/login`
+  themselves never require a token. orkbox has no user *accounts* in the
+  tenancy sense — ownership is expressed by orknux-server through
+  **labels** (e.g. `workspace`, `run`, `agent`), not by who logged in.
 - Errors are `application/problem+json` (RFC 9457) with a stable `code`:
 
   ```json
@@ -33,6 +44,28 @@ in-process through `orkbox-core` (see the README), with the same error codes.
 
 Service information; `healthz`, `readyz`, `/docs` and the UI are not
 documented here, only in `openapi.yaml`.
+
+### `GET /v1/auth` — which authentication mode is in effect
+
+Public (no token). Answers `{ "mode": "token" | "userpass" | "none" }` so a
+client or the built-in UI can discover how to authenticate — and show a
+user/password form when `mode` is `userpass`.
+
+### `POST /v1/login` — exchange a user and password for a bearer token
+
+Public (no token). Body `{ "user", "password" }`.
+
+- In `userpass` mode: `200 { "token" }` to send as
+  `Authorization: Bearer <token>`; wrong credentials give a `401` problem with
+  `code: "bad_credentials"` (distinct from the `unauthorized` a protected
+  endpoint answers when a bearer token is missing or wrong, so a client can tell
+  "log in again" from "re-authenticate").
+- In `token` or `none` mode: `400` with `code: "login_unavailable"` — there is
+  nothing to log in with.
+
+Tokens are minted per login, kept in server memory, and are interchangeable
+with a static `ORKBOX_TOKEN` on every authenticated endpoint. Reissuing them
+(or restarting the service) is the only way to revoke one.
 
 ### `GET /v1/info` — version, runtimes and limits
 
@@ -475,6 +508,8 @@ commands run as the service's own OS user.
 | endpoint | purpose |
 |---|---|
 | `GET /v1/info` | version, enabled runtimes, allowed images, default and maximum limits, available caches |
+| `GET /v1/auth` | which authentication mode is in effect (no token needed) |
+| `POST /v1/login` | exchange a user and password for a bearer token (no token needed) |
 | `GET /healthz` | liveness |
 | `GET /readyz` | readiness (runtime backends reachable, e.g. Docker daemon) |
 | `GET /openapi.yaml` | this API as an OpenAPI 3.1 document (no token needed) |

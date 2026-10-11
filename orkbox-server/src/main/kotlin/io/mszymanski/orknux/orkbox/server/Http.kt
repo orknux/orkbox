@@ -27,6 +27,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.concurrent.ConcurrentHashMap
 
 val ApiJson = Json {
     encodeDefaults = true
@@ -82,21 +84,50 @@ suspend fun ApplicationCall.respondProblem(e: ApiException) {
     respond(TextContent(body.toString(), ProblemJson, HttpStatusCode.fromValue(e.status)))
 }
 
-/** Bearer-token check for everything under the route it is installed on. */
+/**
+ * Bearer-token check for everything under the route it is installed on.
+ * [check] decides whether a presented bearer token is valid; the default
+ * lets everything through, so a route with no authentication simply leaves it
+ * unset. [exempt] names request paths that must stay public (e.g. `/v1/auth`
+ * and `/v1/login`, which exist to obtain a token).
+ */
 class BearerAuthConfig {
-    var token: String? = null
+    var check: (String) -> Boolean = { true }
+    var exempt: (String) -> Boolean = { false }
 }
 
 val BearerAuth = createRouteScopedPlugin("BearerAuth", ::BearerAuthConfig) {
-    val expected = pluginConfig.token?.toByteArray()
     onCall { call ->
-        if (expected == null) return@onCall
+        if (pluginConfig.exempt(call.request.path())) return@onCall
         val header = call.request.headers[HttpHeaders.Authorization]
-        val given = header?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }?.substring(7)?.trim()?.toByteArray()
-        if (given == null || !MessageDigest.isEqual(expected, given)) {
+        val given = header?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }?.substring(7)?.trim()
+        if (given == null || !pluginConfig.check(given)) {
             call.response.header(HttpHeaders.WWWAuthenticate, "Bearer")
             call.respondProblem(ApiException(401, "unauthorized", "Unauthorized", "A valid bearer token is required"))
         }
+    }
+}
+
+/**
+ * How the API is authenticated. [none] turns it off, [token] keeps a single
+ * static bearer secret, [userPass] lets a known user exchange their password
+ * for a bearer token through `POST /v1/login` (nothing static to share).
+ */
+sealed interface Auth {
+    object None : Auth
+    data class Token(val token: String) : Auth
+    class UserPass(val user: String, val password: String) : Auth {
+        private val tokens = ConcurrentHashMap.newKeySet<String>()
+        private val random = SecureRandom()
+        private val alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+        fun verify(user: String, password: String): Boolean =
+            MessageDigest.isEqual(this.user.toByteArray(), user.toByteArray()) &&
+            MessageDigest.isEqual(this.password.toByteArray(), password.toByteArray())
+
+        fun issueToken(): String = buildString { repeat(24) { append(alphabet[random.nextInt(alphabet.length)]) } }.also { tokens.add(it) }
+
+        fun checkToken(token: String): Boolean = token in tokens
     }
 }
 

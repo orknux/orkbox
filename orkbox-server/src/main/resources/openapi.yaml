@@ -92,6 +92,43 @@ paths:
       responses:
         '200': { description: An HTML page., content: { text/html: { schema: { type: string } } } }
 
+  /v1/auth:
+    get:
+      tags: [service]
+      summary: How the API is authenticated
+      description: |
+        Reports which authentication mode the server runs in: `none` (no
+        authentication), `token` (a static bearer token, `ORKBOX_TOKEN`) or
+        `userpass` (log in with `POST /v1/login`). Needs no token itself, so
+        a client or the built-in UI can discover how to authenticate.
+      operationId: getAuth
+      security: []
+      responses:
+        '200': { description: The authentication mode., content: { application/json: { schema: { $ref: '#/components/schemas/AuthInfo' } } } }
+
+  /v1/login:
+    post:
+      tags: [service]
+      summary: Log in with a user and password
+      description: |
+        Exchanges the user credentials for a bearer token to use on the
+        authenticated endpoints. Only exists in effect when the server runs
+        with user/password authentication (`ORKBOX_USER` and
+        `ORKBOX_PASSWORD`); otherwise it answers `login_unavailable`.
+        Wrong credentials answer a 401 problem with code `bad_credentials` -
+        distinct from the `unauthorized` a protected endpoint answers when a
+        bearer token is missing or wrong, so a client can tell "log in again"
+        from "re-authenticate".
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } }
+      responses:
+        '200': { description: 'A bearer token to send as `Authorization: Bearer <token>`.', content: { application/json: { schema: { $ref: '#/components/schemas/LoginResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/BadCredentials' }
+
   /v1/info:
     get:
       tags: [service]
@@ -557,6 +594,7 @@ components:
   responses:
     BadRequest: { description: Invalid request., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
     Unauthorized: { description: Missing or wrong bearer token., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    BadCredentials: { description: Wrong user or password at `POST /v1/login`; code `bad_credentials`., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
     NotFound: { description: 'No such session, execution or file.', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
     Conflict: { description: Not possible in the current state., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
     Problem: { description: See `code`., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
@@ -888,6 +926,25 @@ components:
         diskLimitEnforced: { type: [boolean, 'null'] }
         networkModes: { type: array, items: { type: string } }
         caches: { type: array, items: { type: string } }
+
+    AuthInfo:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [none, token, userpass], description: 'Which authentication mode the server runs in: no authentication, a static bearer token, or login with a user and password.' }
+
+    LoginRequest:
+      type: object
+      required: [user, password]
+      properties:
+        user: { type: string }
+        password: { type: string }
+
+    LoginResponse:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, description: 'Send it as `Authorization: Bearer <token>` on the authenticated endpoints.' }
 
     Info:
       type: object
