@@ -203,7 +203,7 @@ async function api(path,opts={}){
   if(!res.ok){
     if(res.status===401){
       if(state.authMode==='userpass'){state.token='';localStorage.removeItem('orkbox.token');renderAuthBox();$('#authState').textContent='session expired — sign in again'}
-      else $('#authState').textContent='token rejected — enter the server\u2019s bearer token';
+      else {state.token='';localStorage.removeItem('orkbox.token');renderAuthBox();$('#authState').textContent='token rejected — enter a new bearer token';const t=$('#token');if(t)t.focus();}
     }
     const msg=body&&typeof body==='object'?(body.detail||body.title||res.status):String(body);
     throw new Error(msg);

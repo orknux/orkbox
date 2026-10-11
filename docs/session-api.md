@@ -57,7 +57,9 @@ Public (no token). Body `{ "user", "password" }`.
 
 - In `userpass` mode: `200 { "token" }` to send as
   `Authorization: Bearer <token>`; wrong credentials give a `401` problem with
-  `code: "unauthorized"`.
+  `code: "bad_credentials"` (distinct from the `unauthorized` a protected
+  endpoint answers when a bearer token is missing or wrong, so a client can tell
+  "log in again" from "re-authenticate").
 - In `token` or `none` mode: `400` with `code: "login_unavailable"` — there is
   nothing to log in with.
 

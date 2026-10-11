@@ -20,6 +20,9 @@ data class ServerConfig(
     val password: String? = null,
     val insecureNoAuth: Boolean = false,
 ) {
+    init {
+        requireAuthenticationConfigured()
+    }
     companion object {
         fun load(source: (String) -> String? = Config::lookup): ServerConfig {
             fun str(name: String) = source(name)?.trim()?.takeIf { it.isNotEmpty() }
@@ -31,7 +34,6 @@ data class ServerConfig(
                 password = str("ORKBOX_PASSWORD"),
                 insecureNoAuth = str("ORKBOX_INSECURE_NO_AUTH")?.toBooleanStrict() ?: false,
             )
-            config.validate()
             return config
         }
     }
@@ -43,15 +45,16 @@ data class ServerConfig(
         user != null && password != null -> Auth.UserPass(user, password)
         else -> Auth.None
     }
+}
 
-    fun validate() {
-        require((user == null) == (password == null)) {
-            "ORKBOX_USER and ORKBOX_PASSWORD must be set together."
-        }
-        val hasUserPass = user != null && password != null
-        require(token != null || hasUserPass || insecureNoAuth) {
-            "No authentication configured. Set ORKBOX_TOKEN, or ORKBOX_USER and ORKBOX_PASSWORD, or ORKBOX_INSECURE_NO_AUTH=true to run without authentication."
-        }
+/** Fails fast when no authentication is configured - a server that hands out sandboxes should not run open. */
+private fun ServerConfig.requireAuthenticationConfigured() {
+    require((user == null) == (password == null)) {
+        "ORKBOX_USER and ORKBOX_PASSWORD must be set together."
+    }
+    val hasUserPass = user != null && password != null
+    require(token != null || hasUserPass || insecureNoAuth) {
+        "No authentication configured. Set ORKBOX_TOKEN, or ORKBOX_USER and ORKBOX_PASSWORD, or ORKBOX_INSECURE_NO_AUTH=true to run without authentication."
     }
 }
 
@@ -74,7 +77,7 @@ fun main() {
     val orkbox = Orkbox(config).start()
     log.info("orkbox {} on {}:{}, runtimes {}", version, server.host, server.port, config.runtimes)
     when (server.auth) {
-        is Auth.None -> log.warn("Authentication is disabled (ORKBOX_INSECURE_NO_AUTH=true)")
+        is Auth.None -> log.warn("Authentication is disabled (ORKBOX_INSECURE_NO_AUTH=true) - a server that hands out sandboxes should not run this way")
         is Auth.Token -> log.info("authentication: bearer token")
         is Auth.UserPass -> log.info("authentication: user/password (login at /v1/login)")
     }

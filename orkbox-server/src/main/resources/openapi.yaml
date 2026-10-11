@@ -115,7 +115,10 @@ paths:
         authenticated endpoints. Only exists in effect when the server runs
         with user/password authentication (`ORKBOX_USER` and
         `ORKBOX_PASSWORD`); otherwise it answers `login_unavailable`.
-        Wrong credentials answer a 401 problem with code `unauthorized`.
+        Wrong credentials answer a 401 problem with code `bad_credentials` -
+        distinct from the `unauthorized` a protected endpoint answers when a
+        bearer token is missing or wrong, so a client can tell "log in again"
+        from "re-authenticate".
       operationId: login
       security: []
       requestBody:
@@ -124,7 +127,7 @@ paths:
       responses:
         '200': { description: 'A bearer token to send as `Authorization: Bearer <token>`.', content: { application/json: { schema: { $ref: '#/components/schemas/LoginResponse' } } } }
         '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '401': { $ref: '#/components/responses/BadCredentials' }
 
   /v1/info:
     get:
@@ -548,6 +551,7 @@ components:
   responses:
     BadRequest: { description: Invalid request., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
     Unauthorized: { description: Missing or wrong bearer token., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    BadCredentials: { description: Wrong user or password at `POST /v1/login`; code `bad_credentials`., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
     NotFound: { description: 'No such session, execution or file.', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
     Conflict: { description: Not possible in the current state., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
     Problem: { description: See `code`., content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }

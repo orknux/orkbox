@@ -62,8 +62,11 @@ class AuthTest {
         assertEquals(HttpStatusCode.OK, authStatus)
         assertEquals("userpass", authBody["mode"]!!.jsonPrimitive.content)
 
-        // Wrong credentials are rejected.
-        assertEquals(HttpStatusCode.Unauthorized, client.login("alice", "wrong").first)
+        // Wrong credentials are rejected, with a code that tells the client to
+        // re-enter them rather than just retry a token.
+        val (wrongStatus, wrongBody) = client.login("alice", "wrong")
+        assertEquals(HttpStatusCode.Unauthorized, wrongStatus)
+        assertEquals("bad_credentials", wrongBody["code"]!!.jsonPrimitive.content)
         assertEquals(HttpStatusCode.Unauthorized, client.login("mallory", "s3cret").first)
 
         // Correct credentials mint a token that works on the API.
@@ -72,16 +75,16 @@ class AuthTest {
         val token = loginBody["token"]!!.jsonPrimitive.content
         assertTrue(token.isNotEmpty())
 
-        val (infoStatus, infoBody) = client.json("/v1/info")
-        assertEquals(HttpStatusCode.Unauthorized, infoStatus, "the API is still protected before login")
-        val (authed, _) = client.json("/v1/info")
-        assertEquals(HttpStatusCode.Unauthorized, authed)
+        // The API is still protected before login.
+        assertEquals(HttpStatusCode.Unauthorized, client.json("/v1/info").first, "the API is still protected before login")
         val ok = client.get("/v1/info") { bearerAuth(token) }
         assertEquals(HttpStatusCode.OK, ok.status)
 
-        // The minted token is not a fixed secret: a second login gives a different one.
+        // A minted token is not a fixed secret: a second login mints a different one,
+        // and the first stays valid - tokens accumulate until the server restarts.
         val second = client.login("alice", "s3cret").second["token"]!!.jsonPrimitive.content
         assertTrue(second.isNotEmpty() && second != token)
+        assertEquals(HttpStatusCode.OK, client.get("/v1/info") { bearerAuth(token) }.status, "the first token is still valid after a second login")
     }
 
     @Test

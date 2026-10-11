@@ -59,6 +59,7 @@ fun Application.routes(orkbox: Orkbox, auth: Auth, version: String) {
     val files = orkbox.files
     val config = manager.config
     fun authCheck(auth: Auth): (String) -> Boolean = when (auth) {
+        // Unreachable - BearerAuth is not installed in none mode, so this is never called there.
         is Auth.None -> { _ -> true }
         is Auth.Token -> { given -> MessageDigest.isEqual(auth.token.toByteArray(), given.toByteArray()) }
         is Auth.UserPass -> auth::checkToken
@@ -94,7 +95,7 @@ fun Application.routes(orkbox: Orkbox, auth: Auth, version: String) {
                     ?: return@post call.respondProblem(ApiException(400, "login_unavailable", "Login unavailable", "User authentication is not enabled on this server."))
                 val request = call.receiveJson<LoginRequest>()
                 if (!userPass.verify(request.user, request.password)) {
-                    call.respondProblem(ApiException(401, "unauthorized", "Unauthorized", "Wrong user or password"))
+                    call.respondProblem(ApiException(401, "bad_credentials", "Bad credentials", "Wrong user or password"))
                     return@post
                 }
                 call.respondJson(LoginResponse(token = userPass.issueToken()))

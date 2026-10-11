@@ -122,7 +122,8 @@ sealed interface Auth {
         private val alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
 
         fun verify(user: String, password: String): Boolean =
-            user == this.user && MessageDigest.isEqual(this.password.toByteArray(), password.toByteArray())
+            MessageDigest.isEqual(this.user.toByteArray(), user.toByteArray()) &&
+            MessageDigest.isEqual(this.password.toByteArray(), password.toByteArray())
 
         fun issueToken(): String = buildString { repeat(24) { append(alphabet[random.nextInt(alphabet.length)]) } }.also { tokens.add(it) }
 
