@@ -23,6 +23,7 @@ nav{display:flex;gap:6px}
 .auth{margin-left:auto;display:flex;align-items:center;gap:8px}
 .auth input{background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 9px;font:inherit;width:230px}
 .auth input:focus{outline:none;border-color:var(--accent)}
+#tokenLabel{font-size:13px;color:var(--dim);white-space:nowrap}
 #authState{color:var(--dim);font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 main{padding:16px;max-width:1280px;margin:0 auto}
 section[hidden]{display:none}
@@ -96,7 +97,9 @@ a:hover{text-decoration:underline}
     <button class="tab" data-tab="sessions">Sessions<span class="badge" id="sessCount" hidden></span></button>
   </nav>
   <div class="auth">
+    <label for="token" class="dim" id="tokenLabel">API token</label>
     <input id="token" type="password" placeholder="bearer token" autocomplete="off" spellcheck="false">
+    <button id="tokenReveal" class="dim" title="show / hide the token">show</button>
     <span id="authState"></span>
   </div>
 </header>
@@ -145,6 +148,7 @@ const state={
 };
 $('#token').value=state.token;
 $('#token').addEventListener('change',e=>{state.token=e.target.value.trim();localStorage.setItem('orkbox.token',state.token);$('#authState').textContent='';refresh()});
+$('#tokenReveal').addEventListener('click',()=>{const t=$('#token');const show=t.type==='password';t.type=show?'text':'password';$('#tokenReveal').textContent=show?'hide':'show'});
 
 async function api(path,opts={}){
   const headers=Object.assign({},opts.headers||{});
@@ -183,6 +187,8 @@ async function loadSystem(){
     const sys=await api('/v1/system');
     state.system=sys;
     const i=sys.info,h=sys.host,s=sys.sessions;
+    $('#sessCount').hidden=!s.active;
+    $('#sessCount').textContent=s.active;
     $('#ver').textContent=i.version;
     $('#ovServer').innerHTML=
       '<span class="k">version</span><span>'+esc(i.version)+'</span>'+
@@ -236,6 +242,7 @@ async function loadSessions(){
     if(rt)q.set('runtime',rt);
     const page=await api('/v1/sessions?'+q);
     state.sessions=page.items;
+    for(const[id,d]of state.details){if(!state.sessions.some(s=>s.id===id))d.closed=true}
     $('#sessMeta').textContent=state.sessions.length+' sessions';
     renderSessions();
   }catch(e){$('#sessMeta').textContent='error: '+esc(e.message)}
@@ -249,7 +256,8 @@ function renderSessions(){
   }else{
     body.innerHTML=items.map(s=>{
       const mem=s.usage&&s.usage.memoryCurrentMb!=null?mb(s.usage.memoryCurrentMb)+(s.usage.memoryPeakMb!=null?' / peak '+mb(s.usage.memoryPeakMb):''):'\u2014';
-      const stop=(s.status==='ready'||s.status==='creating'||s.status==='stopping')
+      const det=state.details.get(s.id);
+      const stop=(s.status==='ready'||s.status==='creating'||s.status==='stopping')&&(!det||det.closed)
         ?'<button class="danger" data-act="stop" data-id="'+esc(s.id)+'">stop</button>':'';
       return '<tr>'+
       '<td class="mono" title="'+esc(s.id)+'">'+esc(s.id)+'</td>'+
@@ -439,7 +447,7 @@ document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));
   $('#tab-overview').hidden=state.tab!=='overview';
   $('#tab-sessions').hidden=state.tab!=='sessions';
-  refresh();
+  if(state.tab==='sessions')loadSessions();else refresh();
 }));
 $('#fStatus').addEventListener('change',loadSessions);
 $('#fRuntime').addEventListener('change',loadSessions);
