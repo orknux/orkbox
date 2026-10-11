@@ -14,6 +14,7 @@ import io.mszymanski.orknux.orkbox.LocalConfig
 import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
 import io.mszymanski.orknux.orkbox.model.DirectoryListing
 import io.mszymanski.orknux.orkbox.model.Edit
+import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.EditRequest
 import io.mszymanski.orknux.orkbox.model.EditResult
 import io.mszymanski.orknux.orkbox.model.ExecuteRequest
@@ -92,6 +93,7 @@ class OpenApiTest {
             "ExecutionCounts" to ExecutionCounts.serializer(),
             "Usage" to Usage.serializer(),
             "Session" to SessionDto.serializer(),
+            "PublishedPort" to PublishedPort.serializer(),
             "ExecuteRequest" to ExecuteRequest.serializer(),
             "Execution" to ExecutionDto.serializer(),
             "SignalRequest" to SignalRequest.serializer(),

@@ -4,6 +4,7 @@ import io.mszymanski.orknux.orkbox.ApiException
 import io.mszymanski.orknux.orkbox.Config
 import io.mszymanski.orknux.orkbox.DockerConfig
 import io.mszymanski.orknux.orkbox.model.FileEntry
+import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.Resources
 import io.mszymanski.orknux.orkbox.model.RuntimeInfo
 import io.mszymanski.orknux.orkbox.model.SearchMatch
@@ -86,6 +87,8 @@ class DockerRuntime(private val config: DockerConfig) : Runtime {
         config.containerRuntime?.let { args += listOf("--runtime", it) }
         for (cache in spec.caches) args += listOf("--volume", "${config.cacheVolumePrefix}$cache:${CACHES.getValue(cache)}")
         for ((key, value) in spec.env) args += listOf("--env", "$key=$value")
+        // A random host port each, on the configured address: two sessions serving :3000 must not collide.
+        for (port in spec.ports) args += listOf("--publish", "${config.publishHost}::$port")
         args += listOf(spec.image ?: config.defaultImage, "sleep", "infinity")
 
         val result = docker(*args.toTypedArray())
@@ -93,7 +96,22 @@ class DockerRuntime(private val config: DockerConfig) : Runtime {
             docker("rm", "--force", container)
             throw IllegalStateException("Container failed to start: ${result.err}")
         }
-        return DockerSandbox(this, container)
+        val published = if (spec.ports.isEmpty()) emptyList() else published(container, spec.ports)
+        return DockerSandbox(this, container, published)
+    }
+
+    /**
+     * Where each of [ports] ended up, read back with `docker port`, whose lines
+     * read `3000/tcp -> 127.0.0.1:49153` - twice, for IPv4 and IPv6, when
+     * published on every interface; the first is kept.
+     */
+    private suspend fun published(container: String, ports: List<Int>): List<PublishedPort> {
+        val lines = docker("port", container).out.lines()
+        return ports.mapNotNull { port ->
+            val line = lines.firstOrNull { it.startsWith("$port/tcp ") } ?: return@mapNotNull null
+            val hostPort = line.substringAfter("->").trim().substringAfterLast(':').toIntOrNull() ?: return@mapNotNull null
+            PublishedPort(port, config.publishHost, hostPort)
+        }
     }
 
     override suspend fun unavailableReason(): String? = try {
@@ -128,7 +146,11 @@ class DockerRuntime(private val config: DockerConfig) : Runtime {
     )
 }
 
-class DockerSandbox(private val runtime: DockerRuntime, private val container: String) : Sandbox {
+class DockerSandbox(
+    private val runtime: DockerRuntime,
+    private val container: String,
+    override val ports: List<PublishedPort> = emptyList(),
+) : Sandbox {
     override val workdir = DockerRuntime.WORKDIR
 
     private fun abs(path: String) = if (path.isEmpty()) workdir else "$workdir/$path"

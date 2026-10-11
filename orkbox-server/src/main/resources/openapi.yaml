@@ -504,6 +504,7 @@ components:
             directory_not_empty, path_outside_workspace, etag_mismatch,
             edit_no_match, edit_ambiguous, invalid_request, limit_exceeded,
             image_not_allowed, runtime_not_enabled, too_many_sessions,
+            invalid_port, too_many_ports,
             unauthorized, internal_error.
         detail: { type: string }
         editIndex: { type: integer, description: 'The failing edit, for edit errors.' }
@@ -550,6 +551,18 @@ components:
         idleTimeoutSeconds: { type: [integer, 'null'], format: int64 }
         labels: { $ref: '#/components/schemas/StringMap' }
         source: { oneOf: [ { $ref: '#/components/schemas/Source' }, { type: 'null' } ] }
+        ports:
+          type: array
+          description: 'Ports inside the session to make reachable from outside it, at most ORKBOX_MAX_PORTS. docker publishes each at a random host port on ORKBOX_PUBLISH_HOST; local publishes nothing and reports each as itself.'
+          items: { type: integer, minimum: 1, maximum: 65535 }
+
+    PublishedPort:
+      type: object
+      required: [container, host, hostPort]
+      properties:
+        container: { type: integer, description: The port inside the session. }
+        host: { type: string, description: The address it is published on. }
+        hostPort: { type: integer, description: The port on that address. }
 
     UpdateSessionRequest:
       type: object
@@ -598,6 +611,7 @@ components:
         failure: { type: [string, 'null'] }
         executions: { $ref: '#/components/schemas/ExecutionCounts' }
         usage: { oneOf: [ { $ref: '#/components/schemas/Usage' }, { type: 'null' } ] }
+        ports: { type: array, items: { $ref: '#/components/schemas/PublishedPort' }, description: Where the ports asked for at creation can be reached. }
 
     SessionPage:
       type: object

@@ -1,14 +1,21 @@
 package io.mszymanski.orknux.orkbox
 
 import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
+import io.mszymanski.orknux.orkbox.model.ExecuteRequest
+import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.GitSource
 import io.mszymanski.orknux.orkbox.model.Source
 import io.mszymanski.orknux.orkbox.runtime.DockerRuntime
 import io.mszymanski.orknux.orkbox.runtime.Processes
 import io.mszymanski.orknux.orkbox.session.SessionStatus
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.io.TempDir
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -16,6 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class LocalSessionTest : SessionContract() {
     private val root: Path = Files.createTempDirectory("orkbox-local-test")
@@ -35,6 +43,17 @@ class LocalSessionTest : SessionContract() {
     override val printEnvCommand = if (windows) "echo %ORKBOX_TEST_VAR%" else "echo \"\$ORKBOX_TEST_VAR\""
     override val sleepCommand = if (windows) "ping -n 60 127.0.0.1 >nul" else "sleep 60"
     override val catCommand = if (windows) "sort" else "cat"
+
+    /** The local runtime publishes nothing: its commands run on the host, so a port is where it is. */
+    @Test
+    fun `a port asked for is reported as itself`() = runBlocking {
+        val served = orkbox.sessions.create(CreateSessionRequest(ports = listOf(3000, 3000, 8080)))
+        assertEquals(
+            listOf(PublishedPort(3000, "127.0.0.1", 3000), PublishedPort(8080, "127.0.0.1", 8080)),
+            served.toDto().ports,
+        )
+        orkbox.sessions.stop(served, "deleted")
+    }
 
     @Test
     fun `workspace is removed when the session stops`() = runBlocking {
@@ -94,6 +113,36 @@ class DockerSessionTest : SessionContract() {
     override val printEnvCommand = "echo \"\$ORKBOX_TEST_VAR\""
     override val sleepCommand = "sleep 60"
     override val catCommand = "cat"
+
+    /**
+     * A port asked for at creation is published at a random host port on the
+     * bind address, and what a command serves on it is reachable from the host.
+     */
+    @Test
+    fun `a port asked for is published and reachable from the host`() = runBlocking {
+        val served = orkbox.sessions.create(createRequest().copy(image = "python:3.12-slim", ports = listOf(8000)))
+        assertEquals(SessionStatus.READY, served.status, served.failure)
+        try {
+            val port = served.toDto().ports.single()
+            assertEquals(8000, port.container)
+            assertEquals("127.0.0.1", port.host)
+            assertTrue(port.hostPort > 0)
+            orkbox.files.write(served, "index.html", "served from the box".toByteArray(), null, null)
+            val server = orkbox.sessions.execute(served, ExecuteRequest(command = "python3 -m http.server 8000", wait = false))
+            val client = HttpClient.newHttpClient()
+            val request = HttpRequest.newBuilder(URI("http://127.0.0.1:${port.hostPort}/index.html")).build()
+            var body: String? = null
+            repeat(80) {
+                if (body == null) {
+                    body = runCatching { client.send(request, HttpResponse.BodyHandlers.ofString()).body() }.getOrNull()
+                    if (body == null) delay(250)
+                }
+            }
+            assertEquals("served from the box", body, "server ${server.status}: ${server.toDto(4096).stderr}")
+        } finally {
+            orkbox.sessions.stop(served, "deleted")
+        }
+    }
 
     @Test
     fun `usage is read from the container cgroup`() = runBlocking {

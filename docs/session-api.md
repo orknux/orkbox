@@ -49,6 +49,7 @@ in-process through `orkbox-core` (see the README), with the same error codes.
   "ttlSeconds": 7200,                      // hard lifetime
   "idleTimeoutSeconds": 900,               // reaped after this long without API activity
   "labels": { "workspace": "acme", "run": "r-123" },
+  "ports": [3000],                         // make these reachable from outside the session
   "source": {                              // optional: clone a repository into the workspace
     "git": {
       "url": "https://github.com/acme/service.git",
@@ -77,6 +78,14 @@ Runtime differences: `image`, `resources`, `caches` and `network: "none"` are
 configured maximums fail with `limit_exceeded`; more active sessions than
 allowed with `429 too_many_sessions`.
 
+`ports` are asked for at creation, because a container's ports are published
+when it starts. `docker` publishes each at a random host port on
+`ORKBOX_PUBLISH_HOST` (loopback by default, so nothing is reachable from the
+network unless the operator says so); `local` publishes nothing, since its
+commands already run on the host, and reports each port as itself. The
+session's `ports` say where each can be reached. A port outside 1..65535 fails
+with `invalid_port`, more than `ORKBOX_MAX_PORTS` with `too_many_ports`.
+
 ### `GET /v1/sessions/{id}` — session details
 
 ```json
@@ -99,7 +108,8 @@ allowed with `429 too_many_sessions`.
   "stopReason": null,                      // deleted | ttl_expired | idle_timeout | failed | server_shutdown
   "failure": null,
   "executions": { "total": 14, "running": 1 },
-  "usage": { "cpuSeconds": 81.2, "memoryPeakMb": 1830, "memoryCurrentMb": 640 }
+  "usage": { "cpuSeconds": 81.2, "memoryPeakMb": 1830, "memoryCurrentMb": 640 },
+  "ports": [ { "container": 3000, "host": "127.0.0.1", "hostPort": 49153 } ]
 }
 ```
 

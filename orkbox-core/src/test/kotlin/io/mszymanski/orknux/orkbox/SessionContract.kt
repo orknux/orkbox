@@ -61,6 +61,17 @@ abstract class SessionContract {
     }
 
     @Test
+    fun `a port out of range, or more ports than allowed, is refused`() = runBlocking {
+        val base = createRequest()
+        val outOfRange = assertFailsWith<ApiException> { orkbox.sessions.create(base.copy(ports = listOf(0))) }
+        assertEquals("invalid_port", outOfRange.code)
+        val tooMany = assertFailsWith<ApiException> {
+            orkbox.sessions.create(base.copy(ports = (1..config().maxPorts + 1).map { 20000 + it }))
+        }
+        assertEquals("too_many_ports", tooMany.code)
+    }
+
+    @Test
     fun `a regular expression replaces what it matches, with its groups`() = runBlocking {
         val files = orkbox.files
         files.write(session, "re.txt", "port = 8080\nhost = a\nport = 9090\n".toByteArray(), null, null)

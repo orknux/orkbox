@@ -5,6 +5,7 @@ import io.mszymanski.orknux.orkbox.Config
 import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
 import io.mszymanski.orknux.orkbox.model.ExecuteRequest
 import io.mszymanski.orknux.orkbox.model.GitSource
+import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.Resources
 import io.mszymanski.orknux.orkbox.model.UpdateSessionRequest
 import io.mszymanski.orknux.orkbox.runtime.DockerRuntime
@@ -97,6 +98,13 @@ class SessionManager(
         val idle = request.idleTimeoutSeconds ?: config.defaultIdleTimeoutSeconds
         if (idle <= 0) throw ApiException.badRequest("invalid_idle_timeout", "idleTimeoutSeconds must be positive")
         request.source?.git?.let { if (it.url.isBlank()) throw ApiException.badRequest("invalid_source", "source.git.url is required") }
+        val ports = request.ports.distinct()
+        ports.firstOrNull { it !in 1..65535 }?.let {
+            throw ApiException.badRequest("invalid_port", "Port $it is not between 1 and 65535")
+        }
+        if (ports.size > config.maxPorts) {
+            throw ApiException.badRequest("too_many_ports", "At most ${config.maxPorts} ports may be published per session")
+        }
 
         val session = Session(
             id = Ids.session(),
@@ -125,9 +133,14 @@ class SessionManager(
         val started = Instant.now()
         try {
             val sandbox = runtime.create(
-                SandboxSpec(session.id, image, request.env, resources, network == "full", caches),
+                SandboxSpec(session.id, image, request.env, resources, network == "full", caches, ports),
             )
             session.sandbox = sandbox
+            /*
+             * The local runtime publishes nothing: its commands already run on
+             * this machine, so a server one starts is on the host as it is.
+             */
+            session.ports = if (docker) sandbox.ports else ports.map { PublishedPort(it, "127.0.0.1", it) }
             if (session.status != SessionStatus.CREATING) {
                 // Deleted while it was being created.
                 sandbox.destroy()

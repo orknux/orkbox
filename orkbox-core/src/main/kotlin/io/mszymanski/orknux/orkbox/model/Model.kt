@@ -35,7 +35,19 @@ data class CreateSessionRequest(
     val idleTimeoutSeconds: Long? = null,
     val labels: Map<String, String> = emptyMap(),
     val source: Source? = null,
+    /** Ports inside the session to make reachable from outside it; see [PublishedPort]. */
+    val ports: List<Int> = emptyList(),
 )
+
+/**
+ * A port inside a session and where it can be reached from outside: [host] and
+ * [hostPort] as the machine running Orkbox sees them. A container's port is
+ * published at a random host port on the configured bind address; the local
+ * runtime publishes nothing, because its commands already run on the host, so
+ * there a port is reported as itself.
+ */
+@Serializable
+data class PublishedPort(val container: Int, val host: String, val hostPort: Int)
 
 @Serializable
 data class UpdateSessionRequest(
@@ -75,6 +87,7 @@ data class SessionDto(
     val failure: String?,
     val executions: ExecutionCounts,
     val usage: Usage?,
+    val ports: List<PublishedPort> = emptyList(),
 )
 
 @Serializable
