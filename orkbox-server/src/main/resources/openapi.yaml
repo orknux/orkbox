@@ -179,6 +179,49 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/sessions/{id}/ports:
+    parameters: [ { $ref: '#/components/parameters/sessionId' } ]
+    get:
+      tags: [sessions]
+      summary: The session's forwarded ports
+      operationId: listPortForwards
+      responses:
+        '200': { description: The forwards., content: { application/json: { schema: { $ref: '#/components/schemas/PortForwards' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [sessions]
+      summary: Forward a port of a running session
+      description: |
+        Opens a listener on a random port of ORKBOX_PUBLISH_HOST that carries
+        each connection into the session's port - for docker through
+        `docker exec`, with socat, nc, bash or python3 from the image; for
+        local straight to the port on this machine. Answers the forward
+        already open for the same port. Closed when the session stops.
+      operationId: forwardPort
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ForwardRequest' } } }
+      responses:
+        '201': { description: Forwarded., content: { application/json: { schema: { $ref: '#/components/schemas/PublishedPort' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /v1/sessions/{id}/ports/{port}:
+    parameters:
+      - { $ref: '#/components/parameters/sessionId' }
+      - { name: port, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [sessions]
+      summary: Close a forwarded port
+      operationId: closePortForward
+      responses:
+        '204': { description: Closed. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/sessions/{id}/executions:
     parameters: [ { $ref: '#/components/parameters/sessionId' } ]
     post:
@@ -504,7 +547,7 @@ components:
             directory_not_empty, path_outside_workspace, etag_mismatch,
             edit_no_match, edit_ambiguous, invalid_request, limit_exceeded,
             image_not_allowed, runtime_not_enabled, too_many_sessions,
-            invalid_port, too_many_ports,
+            invalid_port, too_many_ports, port_not_forwarded,
             unauthorized, internal_error.
         detail: { type: string }
         editIndex: { type: integer, description: 'The failing edit, for edit errors.' }
@@ -551,18 +594,26 @@ components:
         idleTimeoutSeconds: { type: [integer, 'null'], format: int64 }
         labels: { $ref: '#/components/schemas/StringMap' }
         source: { oneOf: [ { $ref: '#/components/schemas/Source' }, { type: 'null' } ] }
-        ports:
-          type: array
-          description: 'Ports inside the session to make reachable from outside it, at most ORKBOX_MAX_PORTS. docker publishes each at a random host port on ORKBOX_PUBLISH_HOST; local publishes nothing and reports each as itself.'
-          items: { type: integer, minimum: 1, maximum: 65535 }
 
     PublishedPort:
       type: object
       required: [container, host, hostPort]
       properties:
         container: { type: integer, description: The port inside the session. }
-        host: { type: string, description: The address it is published on. }
+        host: { type: string, description: 'The address it listens on, ORKBOX_PUBLISH_HOST.' }
         hostPort: { type: integer, description: The port on that address. }
+
+    ForwardRequest:
+      type: object
+      required: [port]
+      properties:
+        port: { type: integer, minimum: 1, maximum: 65535, description: The port inside the session. }
+
+    PortForwards:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/PublishedPort' } }
 
     UpdateSessionRequest:
       type: object
@@ -611,7 +662,7 @@ components:
         failure: { type: [string, 'null'] }
         executions: { $ref: '#/components/schemas/ExecutionCounts' }
         usage: { oneOf: [ { $ref: '#/components/schemas/Usage' }, { type: 'null' } ] }
-        ports: { type: array, items: { $ref: '#/components/schemas/PublishedPort' }, description: Where the ports asked for at creation can be reached. }
+        ports: { type: array, items: { $ref: '#/components/schemas/PublishedPort' }, description: The ports forwarded out of the session now. }
 
     SessionPage:
       type: object

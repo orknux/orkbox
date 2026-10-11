@@ -26,8 +26,14 @@ data class Config(
     val maxOutputBytes: Int = 4 * 1024 * 1024,
     val maxEvents: Int = 20_000,
     val killGraceSeconds: Long = 10,
-    /** How many ports one session may ask to have published. */
+    /** How many ports one session may have forwarded at once. */
     val maxPorts: Int = 5,
+    /**
+     * The address a forwarded port listens on. Every interface by default:
+     * a port is opened only when a client asks for it, which in Orknux is
+     * after a person approved it. `127.0.0.1` keeps them to this machine.
+     */
+    val publishHost: String = "0.0.0.0",
 
     val docker: DockerConfig = DockerConfig(),
     val local: LocalConfig = LocalConfig(),
@@ -56,6 +62,7 @@ data class Config(
                 maxEvents = int("ORKBOX_MAX_EVENTS", 20_000),
                 killGraceSeconds = long("ORKBOX_KILL_GRACE_SECONDS", 10),
                 maxPorts = int("ORKBOX_MAX_PORTS", 5),
+                publishHost = str("ORKBOX_PUBLISH_HOST") ?: "0.0.0.0",
                 docker = DockerConfig(
                     binary = str("ORKBOX_DOCKER_BINARY") ?: "docker",
                     defaultImage = str("ORKBOX_DOCKER_DEFAULT_IMAGE") ?: DockerConfig.DEFAULT_IMAGE,
@@ -72,7 +79,6 @@ data class Config(
                     maxDiskMb = long("ORKBOX_DOCKER_MAX_DISK_MB", 51200),
                     cacheVolumePrefix = str("ORKBOX_DOCKER_CACHE_VOLUME_PREFIX") ?: "orkbox-cache-",
                     cleanupOnStart = str("ORKBOX_DOCKER_CLEANUP_ON_START")?.toBooleanStrict() ?: true,
-                    publishHost = str("ORKBOX_PUBLISH_HOST") ?: "127.0.0.1",
                 ),
                 local = LocalConfig(
                     root = Path(str("ORKBOX_LOCAL_ROOT") ?: Path(System.getProperty("java.io.tmpdir"), "orkbox").toString()),
@@ -117,12 +123,6 @@ data class DockerConfig(
     val cacheVolumePrefix: String = "orkbox-cache-",
     /** Remove containers left behind by a previous run of the service. */
     val cleanupOnStart: Boolean = true,
-    /**
-     * The host address a session's ports are published on. Loopback by
-     * default, so nothing a session serves is reachable from the network
-     * unless the operator says so - `0.0.0.0` publishes on every interface.
-     */
-    val publishHost: String = "127.0.0.1",
 ) {
     fun allows(image: String) = "*" in images || image in images
 

@@ -49,7 +49,6 @@ in-process through `orkbox-core` (see the README), with the same error codes.
   "ttlSeconds": 7200,                      // hard lifetime
   "idleTimeoutSeconds": 900,               // reaped after this long without API activity
   "labels": { "workspace": "acme", "run": "r-123" },
-  "ports": [3000],                         // make these reachable from outside the session
   "source": {                              // optional: clone a repository into the workspace
     "git": {
       "url": "https://github.com/acme/service.git",
@@ -78,13 +77,6 @@ Runtime differences: `image`, `resources`, `caches` and `network: "none"` are
 configured maximums fail with `limit_exceeded`; more active sessions than
 allowed with `429 too_many_sessions`.
 
-`ports` are asked for at creation, because a container's ports are published
-when it starts. `docker` publishes each at a random host port on
-`ORKBOX_PUBLISH_HOST` (loopback by default, so nothing is reachable from the
-network unless the operator says so); `local` publishes nothing, since its
-commands already run on the host, and reports each port as itself. The
-session's `ports` say where each can be reached. A port outside 1..65535 fails
-with `invalid_port`, more than `ORKBOX_MAX_PORTS` with `too_many_ports`.
 
 ### `GET /v1/sessions/{id}` — session details
 
@@ -109,7 +101,7 @@ with `invalid_port`, more than `ORKBOX_MAX_PORTS` with `too_many_ports`.
   "failure": null,
   "executions": { "total": 14, "running": 1 },
   "usage": { "cpuSeconds": 81.2, "memoryPeakMb": 1830, "memoryCurrentMb": 640 },
-  "ports": [ { "container": 3000, "host": "127.0.0.1", "hostPort": 49153 } ]
+  "ports": [ { "container": 3000, "host": "0.0.0.0", "hostPort": 49153 } ]   // forwarded now; see Ports
 }
 ```
 
@@ -143,6 +135,39 @@ retention period (default 24 h) so they can still be read; after that `GET`
 returns `404`.
 
 ---
+
+## Ports
+
+A running session's port can be forwarded to the machine running Orkbox, so
+a server started in it - a dev server, a page - can be opened from outside.
+
+```
+POST   /v1/sessions/{id}/ports          { "port": 3000 }  ->  201 { "container": 3000, "host": "0.0.0.0", "hostPort": 49153 }
+GET    /v1/sessions/{id}/ports          ->  { "items": [ ... ] }
+DELETE /v1/sessions/{id}/ports/{port}   ->  204
+```
+
+Each forward is a listener on a random port of `ORKBOX_PUBLISH_HOST` (every
+interface by default; `127.0.0.1` keeps forwards to this machine) that
+carries each connection into the session:
+
+- `docker` through `docker exec -i`, with the first relay the image has:
+  `socat`, `nc`, bash's `/dev/tcp`, or `python3`. Through exec rather than the
+  container's address, because Docker Desktop does not route from the host
+  to a container. Opening a connection costs one `docker exec` - a few hundred
+  milliseconds - and the bytes then flow at full speed. An image with none of
+  the four relays cannot be forwarded into: connections close as they open.
+  The server inside must listen on the container's loopback or every
+  interface.
+- `local` straight to the port on this machine, which is where a local
+  session's commands run anyway; a forward moves a server that listens on
+  loopback to the configured address.
+
+Forwarding the same port again answers the forward already open. More than
+`ORKBOX_MAX_PORTS` at once fails with `too_many_ports`, a port outside
+1..65535 with `invalid_port`, closing one that is not open with
+`404 port_not_forwarded`. Forwards are closed when the session stops, and
+`port.opened` / `port.closed` go into the log.
 
 ## Logs
 

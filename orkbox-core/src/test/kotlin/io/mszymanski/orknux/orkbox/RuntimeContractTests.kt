@@ -2,7 +2,6 @@ package io.mszymanski.orknux.orkbox
 
 import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
 import io.mszymanski.orknux.orkbox.model.ExecuteRequest
-import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.GitSource
 import io.mszymanski.orknux.orkbox.model.Source
 import io.mszymanski.orknux.orkbox.runtime.DockerRuntime
@@ -44,15 +43,19 @@ class LocalSessionTest : SessionContract() {
     override val sleepCommand = if (windows) "ping -n 60 127.0.0.1 >nul" else "sleep 60"
     override val catCommand = if (windows) "sort" else "cat"
 
-    /** The local runtime publishes nothing: its commands run on the host, so a port is where it is. */
+    /** A local session's port is this machine's: the forward reaches it directly. */
     @Test
-    fun `a port asked for is reported as itself`() = runBlocking {
-        val served = orkbox.sessions.create(CreateSessionRequest(ports = listOf(3000, 3000, 8080)))
-        assertEquals(
-            listOf(PublishedPort(3000, "127.0.0.1", 3000), PublishedPort(8080, "127.0.0.1", 8080)),
-            served.toDto().ports,
-        )
-        orkbox.sessions.stop(served, "deleted")
+    fun `a forwarded port carries a connection to what listens on it`() = runBlocking {
+        val server = java.net.ServerSocket(0, 50, java.net.InetAddress.getLoopbackAddress())
+        Thread.ofVirtual().start {
+            server.accept().use { it.getOutputStream().write("hello from the session".toByteArray()) }
+        }
+        val forward = orkbox.sessions.forward(session, server.localPort)
+        assertEquals(listOf(forward), session.toDto().ports)
+        val read = java.net.Socket("127.0.0.1", forward.hostPort).use { String(it.getInputStream().readAllBytes()) }
+        assertEquals("hello from the session", read)
+        orkbox.sessions.unforward(session, server.localPort)
+        server.close()
     }
 
     @Test
@@ -115,32 +118,39 @@ class DockerSessionTest : SessionContract() {
     override val catCommand = "cat"
 
     /**
-     * A port asked for at creation is published at a random host port on the
-     * bind address, and what a command serves on it is reachable from the host.
+     * A port forwarded on a running container carries a request from the host
+     * to what a command serves inside it - through docker exec, which works on
+     * Docker Desktop where the container's address does not - and closing it,
+     * or stopping the session, stops that.
      */
     @Test
-    fun `a port asked for is published and reachable from the host`() = runBlocking {
-        val served = orkbox.sessions.create(createRequest().copy(image = "python:3.12-slim", ports = listOf(8000)))
+    fun `a forwarded port reaches a server in a running container`() = runBlocking {
+        val served = orkbox.sessions.create(createRequest().copy(image = "python:3.12-slim"))
         assertEquals(SessionStatus.READY, served.status, served.failure)
         try {
-            val port = served.toDto().ports.single()
-            assertEquals(8000, port.container)
-            assertEquals("127.0.0.1", port.host)
-            assertTrue(port.hostPort > 0)
             orkbox.files.write(served, "index.html", "served from the box".toByteArray(), null, null)
-            val server = orkbox.sessions.execute(served, ExecuteRequest(command = "python3 -m http.server 8000", wait = false))
+            orkbox.sessions.execute(served, ExecuteRequest(command = "python3 -m http.server 8000", wait = false))
+            val port = orkbox.sessions.forward(served, 8000)
+            assertEquals(8000, port.container)
+            assertEquals(listOf(port), served.toDto().ports)
             val client = HttpClient.newHttpClient()
             val request = HttpRequest.newBuilder(URI("http://127.0.0.1:${port.hostPort}/index.html")).build()
             var body: String? = null
             repeat(80) {
                 if (body == null) {
                     body = runCatching { client.send(request, HttpResponse.BodyHandlers.ofString()).body() }.getOrNull()
+                        ?.takeIf { it.isNotEmpty() }
                     if (body == null) delay(250)
                 }
             }
-            assertEquals("served from the box", body, "server ${server.status}: ${server.toDto(4096).stderr}")
-        } finally {
+            assertEquals("served from the box", body)
+            orkbox.sessions.unforward(served, 8000)
+            assertTrue(runCatching { client.send(request, HttpResponse.BodyHandlers.ofString()) }.isFailure, "a closed forward answers nothing")
+            val again = orkbox.sessions.forward(served, 8000)
             orkbox.sessions.stop(served, "deleted")
+            assertTrue(runCatching { java.net.Socket("127.0.0.1", again.hostPort).close() }.isFailure, "stopping the session closes its forwards")
+        } finally {
+            if (served.isActive) orkbox.sessions.stop(served, "deleted")
         }
     }
 

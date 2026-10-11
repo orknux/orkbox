@@ -109,6 +109,20 @@ fun Application.routes(orkbox: Orkbox, token: String?, version: String) {
                         call.respondJson(session.toDto())
                     }
                     get("/logs") { call.logs(call.session(manager)) }
+                    route("/ports") {
+                        get { call.respondJson(PortForwards(call.session(manager).forwards.list())) }
+                        post {
+                            val session = call.session(manager)
+                            val request = call.receiveJson<ForwardRequest>()
+                            call.respondJson(manager.forward(session, request.port), HttpStatusCode.Created)
+                        }
+                        delete("/{port}") {
+                            val port = call.parameters["port"]?.toIntOrNull()
+                                ?: throw ApiException.badRequest("invalid_port", "The port must be a number")
+                            manager.unforward(call.session(manager), port)
+                            call.respond(HttpStatusCode.NoContent)
+                        }
+                    }
                     executions(manager)
                     files(manager, files)
                 }

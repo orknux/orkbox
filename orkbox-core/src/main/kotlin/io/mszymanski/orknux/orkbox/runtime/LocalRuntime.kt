@@ -88,6 +88,16 @@ class LocalSandbox(
 ) : Sandbox {
     override val workdir: String = root.toString()
 
+    /**
+     * A local session's commands run on this machine, so its port is this
+     * machine's: the connection goes to it directly. A forward then only moves
+     * a server that listens on loopback to the configured address.
+     */
+    override suspend fun connect(port: Int): Tunnel = withContext(Dispatchers.IO) {
+        val socket = java.net.Socket("127.0.0.1", port)
+        Tunnel(socket.getInputStream(), socket.getOutputStream(), { socket.shutdownOutput() }, { socket.close() })
+    }
+
     /** Resolves a normalised path, refusing symlinks that lead out of the workspace. */
     private fun resolve(path: String): Path {
         /* Without this, a workspace removed from under the session read as every path being outside it. */

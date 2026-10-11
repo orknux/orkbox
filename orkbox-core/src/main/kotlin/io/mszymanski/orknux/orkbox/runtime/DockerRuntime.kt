@@ -4,7 +4,6 @@ import io.mszymanski.orknux.orkbox.ApiException
 import io.mszymanski.orknux.orkbox.Config
 import io.mszymanski.orknux.orkbox.DockerConfig
 import io.mszymanski.orknux.orkbox.model.FileEntry
-import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.Resources
 import io.mszymanski.orknux.orkbox.model.RuntimeInfo
 import io.mszymanski.orknux.orkbox.model.SearchMatch
@@ -44,6 +43,16 @@ class DockerRuntime(private val config: DockerConfig) : Runtime {
             "yarn" to "/usr/local/share/.cache/yarn",
             "pip" to "/root/.cache/pip",
         )
+
+        /** Carries stdin to 127.0.0.1:$1 inside the container and back; see [DockerSandbox.connect]. */
+        const val RELAY = "p=\"\$1\"; " +
+            "if command -v socat >/dev/null 2>&1; then exec socat - TCP:127.0.0.1:\"\$p\"; fi; " +
+            "if command -v nc >/dev/null 2>&1; then exec nc 127.0.0.1 \"\$p\"; fi; " +
+            "if command -v bash >/dev/null 2>&1; then exec bash -c 'exec 3<>/dev/tcp/127.0.0.1/\"\$0\" || exit 1; cat <&3 & cat >&3; wait' \"\$p\"; fi; " +
+            "if command -v python3 >/dev/null 2>&1; then exec python3 -c 'import socket,sys,threading as t;s=socket.create_connection((\"127.0.0.1\",int(sys.argv[1])))\n" +
+            "def o():\n while (b:=sys.stdin.buffer.read1(65536)):s.sendall(b)\n s.shutdown(socket.SHUT_WR)\nt.Thread(target=o,daemon=True).start()\n" +
+            "while (b:=s.recv(65536)):sys.stdout.buffer.write(b);sys.stdout.buffer.flush()' \"\$p\"; fi; " +
+            "echo 'no socat, nc, bash or python3 to relay with' >&2; exit 127"
 
         /** `command` strings run through bash when the image has it, sh otherwise. */
         val SHELL = listOf("bash", "-c")
@@ -87,8 +96,6 @@ class DockerRuntime(private val config: DockerConfig) : Runtime {
         config.containerRuntime?.let { args += listOf("--runtime", it) }
         for (cache in spec.caches) args += listOf("--volume", "${config.cacheVolumePrefix}$cache:${CACHES.getValue(cache)}")
         for ((key, value) in spec.env) args += listOf("--env", "$key=$value")
-        // A random host port each, on the configured address: two sessions serving :3000 must not collide.
-        for (port in spec.ports) args += listOf("--publish", "${config.publishHost}::$port")
         args += listOf(spec.image ?: config.defaultImage, "sleep", "infinity")
 
         val result = docker(*args.toTypedArray())
@@ -96,22 +103,7 @@ class DockerRuntime(private val config: DockerConfig) : Runtime {
             docker("rm", "--force", container)
             throw IllegalStateException("Container failed to start: ${result.err}")
         }
-        val published = if (spec.ports.isEmpty()) emptyList() else published(container, spec.ports)
-        return DockerSandbox(this, container, published)
-    }
-
-    /**
-     * Where each of [ports] ended up, read back with `docker port`, whose lines
-     * read `3000/tcp -> 127.0.0.1:49153` - twice, for IPv4 and IPv6, when
-     * published on every interface; the first is kept.
-     */
-    private suspend fun published(container: String, ports: List<Int>): List<PublishedPort> {
-        val lines = docker("port", container).out.lines()
-        return ports.mapNotNull { port ->
-            val line = lines.firstOrNull { it.startsWith("$port/tcp ") } ?: return@mapNotNull null
-            val hostPort = line.substringAfter("->").trim().substringAfterLast(':').toIntOrNull() ?: return@mapNotNull null
-            PublishedPort(port, config.publishHost, hostPort)
-        }
+        return DockerSandbox(this, container)
     }
 
     override suspend fun unavailableReason(): String? = try {
@@ -146,11 +138,23 @@ class DockerRuntime(private val config: DockerConfig) : Runtime {
     )
 }
 
-class DockerSandbox(
-    private val runtime: DockerRuntime,
-    private val container: String,
-    override val ports: List<PublishedPort> = emptyList(),
-) : Sandbox {
+class DockerSandbox(private val runtime: DockerRuntime, private val container: String) : Sandbox {
+
+    /**
+     * A connection into the container's [port] through `docker exec -i`, with
+     * the first relay the image has: socat, nc, bash's `/dev/tcp`, or python3.
+     * Through exec rather than the container's address, which Docker Desktop
+     * does not route to from the host. An image with none of the four cannot be
+     * forwarded into, and the connection is closed as soon as it opens.
+     */
+    override suspend fun connect(port: Int): Tunnel = withContext(Dispatchers.IO) {
+        val process = Processes.start(
+            ProcessBuilder(exec(listOf("sh", "-c", DockerRuntime.RELAY, "relay", port.toString())))
+                .redirectError(ProcessBuilder.Redirect.DISCARD),
+        )
+        Tunnel(process.inputStream, process.outputStream, { process.outputStream.close() }, { process.destroyForcibly() })
+    }
+
     override val workdir = DockerRuntime.WORKDIR
 
     private fun abs(path: String) = if (path.isEmpty()) workdir else "$workdir/$path"

@@ -1,7 +1,6 @@
 package io.mszymanski.orknux.orkbox.runtime
 
 import io.mszymanski.orknux.orkbox.model.FileEntry
-import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.Resources
 import io.mszymanski.orknux.orkbox.model.RuntimeInfo
 import io.mszymanski.orknux.orkbox.model.SearchRequest
@@ -34,8 +33,6 @@ data class SandboxSpec(
     val resources: Resources?,
     val networkEnabled: Boolean,
     val caches: List<String>,
-    /** Ports to publish; already checked for range and count. */
-    val ports: List<Int> = emptyList(),
 )
 
 enum class Signal { INT, TERM, KILL, HUP }
@@ -47,9 +44,6 @@ enum class Signal { INT, TERM, KILL, HUP }
 interface Sandbox {
     /** The workspace root as clients see it (`/workspace`, or a host directory). */
     val workdir: String
-
-    /** Where the ports asked for at creation can be reached; empty for a runtime that publishes nothing. */
-    val ports: List<PublishedPort> get() = emptyList()
 
     /** Starts a command; the caller owns the returned process. */
     suspend fun spawn(spec: ProcessSpec): SandboxProcess
@@ -75,6 +69,23 @@ interface Sandbox {
 
     suspend fun usage(): Usage?
     suspend fun destroy()
+
+    /** A byte stream to [port] inside the sandbox, which a forwarded connection is carried through. */
+    suspend fun connect(port: Int): Tunnel
+}
+
+/**
+ * One connection into a sandbox's port: what it sends, what to write to it,
+ * a way to say the writing is done, and a way to end it.
+ */
+class Tunnel(
+    val input: InputStream,
+    val output: OutputStream,
+    private val endOutput: () -> Unit,
+    private val closer: () -> Unit,
+) {
+    fun closeOutput() = runCatching { endOutput() }.let { }
+    fun close() = runCatching { closer() }.let { }
 }
 
 data class ProcessSpec(

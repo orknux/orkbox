@@ -61,14 +61,16 @@ abstract class SessionContract {
     }
 
     @Test
-    fun `a port out of range, or more ports than allowed, is refused`() = runBlocking {
-        val base = createRequest()
-        val outOfRange = assertFailsWith<ApiException> { orkbox.sessions.create(base.copy(ports = listOf(0))) }
-        assertEquals("invalid_port", outOfRange.code)
-        val tooMany = assertFailsWith<ApiException> {
-            orkbox.sessions.create(base.copy(ports = (1..config().maxPorts + 1).map { 20000 + it }))
-        }
-        assertEquals("too_many_ports", tooMany.code)
+    fun `a port out of range, more ports than allowed, or closing one not open is refused`() = runBlocking {
+        val manager = orkbox.sessions
+        assertEquals("invalid_port", assertFailsWith<ApiException> { manager.forward(session, 0) }.code)
+        val opened = (1..config().maxPorts).map { manager.forward(session, 20000 + it) }
+        assertEquals(opened, manager.forward(session, 20001).let { opened }, "forwarding a port again answers the same forward")
+        assertEquals(opened.first(), manager.forward(session, 20001))
+        assertEquals("too_many_ports", assertFailsWith<ApiException> { manager.forward(session, 29999) }.code)
+        opened.forEach { manager.unforward(session, it.container) }
+        assertEquals(emptyList(), session.toDto().ports)
+        assertEquals("port_not_forwarded", assertFailsWith<ApiException> { manager.unforward(session, 20001) }.code)
     }
 
     @Test

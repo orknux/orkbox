@@ -138,7 +138,7 @@ Environment variables (or system properties: `ORKBOX_MAX_SESSIONS` ->
 | `ORKBOX_MAX_SESSIONS` | `50` | Active sessions at once. |
 | `ORKBOX_MAX_OUTPUT_BYTES` | `4194304` | Output kept per execution stream. |
 | `ORKBOX_KILL_GRACE_SECONDS` | `10` | Between SIGTERM and SIGKILL on timeout. |
-| `ORKBOX_MAX_PORTS` | `5` | Ports one session may ask to have published. |
+| `ORKBOX_MAX_PORTS` | `5` | Ports one session may have forwarded at once. |
 | `ORKBOX_DOCKER_BINARY` | `docker` | CLI to use, e.g. `podman`. |
 | `ORKBOX_DOCKER_DEFAULT_IMAGE` | `orknux/orkbox-toolchain:latest` | Image for sessions that don't name one. |
 | `ORKBOX_DOCKER_IMAGES` | `*` | Comma-separated allowlist of images. |
@@ -149,7 +149,7 @@ Environment variables (or system properties: `ORKBOX_MAX_SESSIONS` ->
 | `ORKBOX_DOCKER_DISK_LIMIT` | `false` | Enforce `diskMb` (needs overlay2 on xfs with pquota). |
 | `ORKBOX_DOCKER_CACHE_VOLUME_PREFIX` | `orkbox-cache-` | Named volumes for shared caches. |
 | `ORKBOX_DOCKER_CLEANUP_ON_START` | `true` | Remove containers left by a previous run. |
-| `ORKBOX_PUBLISH_HOST` | `127.0.0.1` | Address a session's ports are published on; `0.0.0.0` for every interface. |
+| `ORKBOX_PUBLISH_HOST` | `0.0.0.0` | Address a forwarded port listens on; `127.0.0.1` keeps forwards to this machine. |
 | `ORKBOX_LOCAL_ROOT` | `<tmp>/orkbox` | Where local workspaces live. |
 | `ORKBOX_LOCAL_OWNER` | `orkbox` | Name written beside each local workspace; start-up clean-up removes only workspaces with this name, so instances sharing a root leave each other's alone. |
 | `ORKBOX_LOCAL_SHELL` | `/bin/sh -lc`, or `cmd.exe /d /s /c` on Windows | Shell for `command` strings, e.g. `bash -lc` or `pwsh -NoProfile -Command`. |

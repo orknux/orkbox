@@ -98,13 +98,6 @@ class SessionManager(
         val idle = request.idleTimeoutSeconds ?: config.defaultIdleTimeoutSeconds
         if (idle <= 0) throw ApiException.badRequest("invalid_idle_timeout", "idleTimeoutSeconds must be positive")
         request.source?.git?.let { if (it.url.isBlank()) throw ApiException.badRequest("invalid_source", "source.git.url is required") }
-        val ports = request.ports.distinct()
-        ports.firstOrNull { it !in 1..65535 }?.let {
-            throw ApiException.badRequest("invalid_port", "Port $it is not between 1 and 65535")
-        }
-        if (ports.size > config.maxPorts) {
-            throw ApiException.badRequest("too_many_ports", "At most ${config.maxPorts} ports may be published per session")
-        }
 
         val session = Session(
             id = Ids.session(),
@@ -119,6 +112,7 @@ class SessionManager(
             idleTimeoutSeconds = idle,
             events = EventLog(config.maxEvents),
         )
+        session.forwards = PortForwarder(config.publishHost)
         synchronized(sessions) {
             if (sessions.values.count { it.isActive } >= config.maxSessions) {
                 throw ApiException(429, "too_many_sessions", "Too many sessions", "At most ${config.maxSessions} sessions may be active")
@@ -133,14 +127,9 @@ class SessionManager(
         val started = Instant.now()
         try {
             val sandbox = runtime.create(
-                SandboxSpec(session.id, image, request.env, resources, network == "full", caches, ports),
+                SandboxSpec(session.id, image, request.env, resources, network == "full", caches),
             )
             session.sandbox = sandbox
-            /*
-             * The local runtime publishes nothing: its commands already run on
-             * this machine, so a server one starts is on the host as it is.
-             */
-            session.ports = if (docker) sandbox.ports else ports.map { PublishedPort(it, "127.0.0.1", it) }
             if (session.status != SessionStatus.CREATING) {
                 // Deleted while it was being created.
                 sandbox.destroy()
@@ -257,6 +246,7 @@ class SessionManager(
         }
         session.events.append("session.stopping", buildJsonObject { put("reason", reason) })
         withContext(NonCancellable) {
+            session.forwards.closeAll()
             killExecutions(session)
             session.sandbox?.let { sandbox ->
                 runCatching { sandbox.destroy() }.onFailure { log.warn("Destroying session {} failed", session.id, it) }
@@ -266,6 +256,32 @@ class SessionManager(
         session.stopReason = reason
         session.stoppedAt = Instant.now()
         session.events.append("session.stopped", buildJsonObject { put("reason", reason) })
+    }
+
+    // ---- ports -----------------------------------------------------------------------------
+
+    /**
+     * Forwards [port] inside [session] to a random port on the configured
+     * address, or answers the forward already open for it.
+     */
+    fun forward(session: Session, port: Int): PublishedPort {
+        if (port !in 1..65535) throw ApiException.badRequest("invalid_port", "Port $port is not between 1 and 65535")
+        val sandbox = session.requireReady()
+        session.forwards.find(port)?.let { return it }
+        if (session.forwards.list().size >= config.maxPorts) {
+            throw ApiException.badRequest("too_many_ports", "At most ${config.maxPorts} ports may be forwarded per session")
+        }
+        val published = session.forwards.open(port) { sandbox.connect(it) }
+        session.events.append("port.opened", buildJsonObject {
+            put("port", port)
+            put("hostPort", published.hostPort)
+        })
+        return published
+    }
+
+    fun unforward(session: Session, port: Int) {
+        if (!session.forwards.close(port)) throw ApiException.notFound("port_not_forwarded", "Port $port is not forwarded")
+        session.events.append("port.closed", buildJsonObject { put("port", port) })
     }
 
     private suspend fun killExecutions(session: Session) {

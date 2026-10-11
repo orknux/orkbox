@@ -3,7 +3,6 @@ package io.mszymanski.orknux.orkbox.session
 import io.mszymanski.orknux.orkbox.ApiException
 import io.mszymanski.orknux.orkbox.model.ExecutionCounts
 import io.mszymanski.orknux.orkbox.model.ExecutionDto
-import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.Resources
 import io.mszymanski.orknux.orkbox.model.SessionDto
 import io.mszymanski.orknux.orkbox.model.Usage
@@ -54,8 +53,8 @@ class Session(
     @Volatile var stopReason: String? = null
     @Volatile var failure: String? = null
 
-    /** Where the ports asked for at creation can be reached, once the sandbox exists. */
-    @Volatile var ports: List<PublishedPort> = emptyList()
+    /** The ports forwarded out of it; closed when it stops. */
+    var forwards: PortForwarder = PortForwarder("0.0.0.0")
 
     private val _labels = LinkedHashMap(labels)
     val labels: Map<String, String> @Synchronized get() = LinkedHashMap(_labels)
@@ -110,7 +109,7 @@ class Session(
             failure = failure,
             executions = ExecutionCounts(all.size, all.count { it.status == ExecutionStatus.RUNNING }),
             usage = usage,
-            ports = ports,
+            ports = forwards.list(),
         )
     }
 }
