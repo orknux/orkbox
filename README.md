@@ -120,6 +120,12 @@ The OpenAPI 3.1 document is served at `/openapi.yaml` and browsable at
 `orkbox-server/src/main/resources/openapi.yaml`; a test fails when it no
 longer matches the routes or the model classes.
 
+The server also has a built-in UI, served without a token at `/` and `/ui`:
+the running sessions and their logs, a stop button for each, and a server
+overview — uptime, host CPUs, memory, disk, JVM heap, and the CPU and memory
+limits of every active session, backed by `GET /v1/system`. The page asks the
+browser for the bearer token and sends it with every API call.
+
 ### Configuration
 
 Environment variables (or system properties: `ORKBOX_MAX_SESSIONS` ->

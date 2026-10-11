@@ -16,7 +16,7 @@ talks to no LLM provider — don't add model clients, prompts or agent logic.
 | path | contents |
 |---|---|
 | `orkbox-core` | Library: `Orkbox` facade, `Config`, `model/` (API request/response types), `session/` (sessions, executions, files, event log), `runtime/` (`docker` and `local` runtimes). |
-| `orkbox-server` | Ktor (CIO) HTTP server: `Routes.kt`, `Http.kt`, `Main.kt`, `OpenApi.kt`, and the hand-written `src/main/resources/openapi.yaml`. |
+| `orkbox-server` | Ktor (CIO) HTTP server: `Routes.kt`, `Http.kt`, `Main.kt`, `OpenApi.kt`, the hand-written `src/main/resources/openapi.yaml`, and `ui.html`, the built-in UI page served at `/` and `/ui`. |
 | `images/toolchain` | Dockerfile for `orknux/orkbox-toolchain`, the default session image. |
 | `docs/session-api.md` | The API specification. |
 

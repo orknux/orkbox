@@ -29,6 +29,47 @@ in-process through `orkbox-core` (see the README), with the same error codes.
 
 ---
 
+## Service
+
+Service information; `healthz`, `readyz`, `/docs` and the UI are not
+documented here, only in `openapi.yaml`.
+
+### `GET /v1/info` — version, runtimes and limits
+
+What a server is: the version, the enabled runtimes and each one's
+configuration (`RuntimeInfo`), the default TTL, idle timeout and the maximum
+number of active sessions.
+
+### `GET /v1/system` — server and host overview
+
+`Info` plus everything the UI's overview tab shows:
+
+```json
+{
+  "info": { "name": "orkbox", "version": "0.1.0-SNAPSHOT", "…": "…" },
+  "startedAt": "2026-10-11T12:00:00Z",
+  "uptimeSeconds": 3600,
+  "host": {
+    "os": "Linux", "architecture": "amd64", "java": "25.0.4",
+    "cpuCores": 8, "loadAverage": 0.12,
+    "memoryTotalMb": 4096, "memoryUsedMb": 1500,
+    "diskTotalMb": 512000, "diskUsedMb": 128000,
+    "jvmUsedMb": 512, "jvmMaxMb": 8192
+  },
+  "sessions": {
+    "active": 2, "maxSessions": 50, "total": 3,
+    "byStatus": { "ready": 2, "stopped": 1 },
+    "cpus": 4.0, "memoryMb": 8192
+  }
+}
+```
+
+`host.memory*` is the host's physical memory (the JVM's own memory where the
+JVM cannot report it); `disk*` is the file system holding the local workspaces;
+`sessions` adds up the CPU and memory limits of every active session.
+
+---
+
 ## Sessions
 
 ### `POST /v1/sessions` — create a session

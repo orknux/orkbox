@@ -171,6 +171,43 @@ class ApiTest {
     }
 
     @Test
+    fun `the system overview reports the server and the host`() = api { client ->
+        val denied = client.get("/v1/system")
+        assertEquals(HttpStatusCode.Unauthorized, denied.status)
+
+        // A session so the overview has something to count.
+        val created = client.postJson("/v1/sessions", "")
+        assertEquals(HttpStatusCode.Created, created.status)
+
+        val system = client.get("/v1/system") { bearerAuth(token) }.json()
+        assertEquals("orkbox", system["info"]!!.jsonObject.str("name"))
+        assertEquals("local", system["info"]!!.jsonObject.str("defaultRuntime"))
+        assertEquals(true, system["info"]!!.jsonObject["runtimes"]!!.jsonArray[0].jsonObject["available"]!!.jsonPrimitive.content.toBoolean())
+        assertTrue(system["uptimeSeconds"]!!.jsonPrimitive.int >= 0)
+
+        val host = system["host"]!!.jsonObject
+        assertTrue(host["cpuCores"]!!.jsonPrimitive.int > 0)
+        assertTrue(host["memoryTotalMb"]!!.jsonPrimitive.int > 0)
+        assertTrue(host["memoryUsedMb"]!!.jsonPrimitive.int > 0)
+        assertTrue(host["diskTotalMb"]!!.jsonPrimitive.int > 0)
+        assertTrue("os" in host && "architecture" in host && "java" in host)
+
+        val sessions = system["sessions"]!!.jsonObject
+        assertEquals(1, sessions["active"]!!.jsonPrimitive.int)
+        assertEquals(1, sessions["total"]!!.jsonPrimitive.int)
+        assertEquals(50, sessions["maxSessions"]!!.jsonPrimitive.int)
+        assertEquals(1, sessions["byStatus"]!!.jsonObject["ready"]!!.jsonPrimitive.int)
+
+        // A stopped session stops counting as active but stays readable.
+        val id = created.json().str("id")
+        client.delete("/v1/sessions/$id") { bearerAuth(token) }
+        val after = client.get("/v1/system") { bearerAuth(token) }.json()
+        assertEquals(0, after["sessions"]!!.jsonObject["active"]!!.jsonPrimitive.int)
+        assertEquals(1, after["sessions"]!!.jsonObject["total"]!!.jsonPrimitive.int)
+        assertEquals(1, after["sessions"]!!.jsonObject["byStatus"]!!.jsonObject["stopped"]!!.jsonPrimitive.int)
+    }
+
+    @Test
     fun `invalid requests are problems`() = api { client ->
         val malformed = client.postJson("/v1/sessions", "{not json")
         assertEquals(HttpStatusCode.BadRequest, malformed.status)

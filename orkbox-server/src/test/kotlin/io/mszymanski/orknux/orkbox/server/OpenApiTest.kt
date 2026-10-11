@@ -2,6 +2,7 @@ package io.mszymanski.orknux.orkbox.server
 
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.routing.HttpMethodRouteSelector
 import io.ktor.server.routing.RoutingNode
@@ -24,6 +25,7 @@ import io.mszymanski.orknux.orkbox.model.ExecutionCounts
 import io.mszymanski.orknux.orkbox.model.ExecutionDto
 import io.mszymanski.orknux.orkbox.model.FileEntry
 import io.mszymanski.orknux.orkbox.model.GitSource
+import io.mszymanski.orknux.orkbox.model.HostInfo
 import io.mszymanski.orknux.orkbox.model.Info
 import io.mszymanski.orknux.orkbox.model.MoveRequest
 import io.mszymanski.orknux.orkbox.model.Resources
@@ -34,6 +36,8 @@ import io.mszymanski.orknux.orkbox.model.SearchResult
 import io.mszymanski.orknux.orkbox.model.SessionDto
 import io.mszymanski.orknux.orkbox.model.SignalRequest
 import io.mszymanski.orknux.orkbox.model.Source
+import io.mszymanski.orknux.orkbox.model.SystemInfo
+import io.mszymanski.orknux.orkbox.model.SystemSessions
 import io.mszymanski.orknux.orkbox.model.UpdateSessionRequest
 import io.mszymanski.orknux.orkbox.model.Usage
 import io.mszymanski.orknux.orkbox.model.WriteResult
@@ -81,7 +85,7 @@ class OpenApiTest {
     private fun path(route: RoutingNode): String =
         generateSequence(route) { it.parent }.toList().reversed()
             .map { it.selector.toString() }
-            .filter { it.isNotEmpty() && !it.startsWith("(") && it != "/" }
+            .filter { it.isNotEmpty() && !it.startsWith("(") && it != "/" && it != "<slash>" }
             .joinToString("/", prefix = "/")
 
     @Test
@@ -115,6 +119,9 @@ class OpenApiTest {
             "SearchResult" to SearchResult.serializer(),
             "RuntimeInfo" to RuntimeInfo.serializer(),
             "Info" to Info.serializer(),
+            "HostInfo" to HostInfo.serializer(),
+            "SystemSessions" to SystemSessions.serializer(),
+            "SystemInfo" to SystemInfo.serializer(),
         )
         @Suppress("UNCHECKED_CAST")
         val schemas = spec.getValue("components")["schemas"] as Map<String, Map<String, Any>>
@@ -141,6 +148,12 @@ class OpenApiTest {
         assertTrue(text.startsWith("openapi: 3.1.0"))
         assertFalse("__VERSION__" in text)
         assertTrue("swagger-ui" in client.get("/docs").bodyAsText())
+        for (path in listOf("/", "/ui")) {
+            val page = client.get(path)
+            assertEquals(HttpStatusCode.OK, page.status)
+            assertTrue("text/html" in (page.headers[HttpHeaders.ContentType] ?: ""), path)
+        }
+        assertTrue("orkbox" in client.get("/ui").bodyAsText())
         orkbox.close()
     }
 }

@@ -2,7 +2,8 @@
   "resources": {
     "includes": [
       { "pattern": "\\Qopenapi.yaml\\E" },
-      { "pattern": "\\Qsimplelogger.properties\\E" }
+      { "pattern": "\\Qsimplelogger.properties\\E" },
+      { "pattern": "\\Qui.html\\E" }
     ]
   }
 }

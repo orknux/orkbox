@@ -225,3 +225,39 @@ data class Info(
     val defaultIdleTimeoutSeconds: Long,
     val maxSessions: Int,
 )
+
+@Serializable
+data class HostInfo(
+    val os: String,
+    val architecture: String,
+    val java: String,
+    val cpuCores: Int,
+    val loadAverage: Double? = null,
+    val memoryTotalMb: Long? = null,
+    val memoryUsedMb: Long? = null,
+    val swapTotalMb: Long? = null,
+    val swapUsedMb: Long? = null,
+    val diskTotalMb: Long? = null,
+    val diskUsedMb: Long? = null,
+    val jvmUsedMb: Long? = null,
+    val jvmMaxMb: Long? = null,
+)
+
+@Serializable
+data class SystemSessions(
+    val active: Int,
+    val maxSessions: Int,
+    val total: Int,
+    val byStatus: Map<String, Int>,
+    val cpus: Double,
+    val memoryMb: Long,
+)
+
+@Serializable
+data class SystemInfo(
+    val info: Info,
+    val startedAt: String,
+    val uptimeSeconds: Long,
+    val host: HostInfo,
+    val sessions: SystemSessions,
+)
