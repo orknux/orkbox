@@ -17,6 +17,7 @@ talks to no LLM provider — don't add model clients, prompts or agent logic.
 |---|---|
 | `orkbox-core` | Library: `Orkbox` facade, `Config`, `model/` (API request/response types), `session/` (sessions, executions, files, event log), `runtime/` (`docker` and `local` runtimes). |
 | `orkbox-server` | Ktor (CIO) HTTP server: `Routes.kt`, `Http.kt`, `Main.kt`, `OpenApi.kt`, the hand-written `src/main/resources/openapi.yaml`, and `ui.html`, the built-in UI page served at `/` and `/ui`. |
+| `.github/workflows` | `ci.yaml` — runs `./mvnw verify` on PRs and pushes to main; uploads the shaded `orkbox.jar` on main. |
 | `images/toolchain` | Dockerfile for `orknux/orkbox-toolchain`, the default session image. |
 | `docs/session-api.md` | The API specification. |
 
@@ -38,6 +39,17 @@ Kotlin on JDK 25, built with the Maven wrapper.
   `debian:bookworm-slim`, deliberately without git/ripgrep so fallbacks get
   covered).
 - Run `./mvnw verify` before considering a change done.
+
+## CI
+
+`ci.yaml` runs `./mvnw verify` on every pull request and on pushes to main.
+The GitHub runners have a Docker daemon, so the docker-runtime contract
+tests run there even when they skip locally. A green check is part of a
+change being done; the PR's own head branch carries the workflow, so a new
+one must land through a merged PR before it runs on that PR.
+
+Pushes to main additionally upload the shaded `orkbox-server/target/orkbox.jar`
+as a workflow artifact.
 
 ## Rules
 
