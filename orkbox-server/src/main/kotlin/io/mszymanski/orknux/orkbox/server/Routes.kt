@@ -22,6 +22,7 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.mszymanski.orknux.orkbox.ApiException
+import io.mszymanski.orknux.orkbox.Config
 import io.mszymanski.orknux.orkbox.Orkbox
 import io.mszymanski.orknux.orkbox.model.*
 import io.mszymanski.orknux.orkbox.session.Event
@@ -40,6 +41,12 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import com.sun.management.OperatingSystemMXBean
+import java.lang.management.ManagementFactory
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Duration
+import java.time.Instant
 
 private const val DEFAULT_WAIT_SECONDS = 300L
 private const val MAX_WAIT_SECONDS = 3600L
@@ -61,6 +68,11 @@ fun Application.routes(orkbox: Orkbox, token: String?, version: String) {
         val openApi = OpenApi.document(version)
         get("/openapi.yaml") { call.respondText(openApi, ContentType("application", "yaml")) }
         get("/docs") { call.respondText(OpenApi.SWAGGER_UI, ContentType.Text.Html) }
+        val uiPage: ByteArray = orkbox.javaClass.classLoader.getResourceAsStream("ui.html")
+            ?.use { it.readBytes() }
+            ?: throw IllegalStateException("ui.html is missing from the classpath")
+        get("/ui") { call.respondBytes(uiPage, ContentType.Text.Html) }
+        get("/") { call.respondBytes(uiPage, ContentType.Text.Html) }
 
         route("/v1") {
             install(BearerAuth) { this.token = token }
@@ -77,6 +89,8 @@ fun Application.routes(orkbox: Orkbox, token: String?, version: String) {
                     maxSessions = config.maxSessions,
                 ))
             }
+
+            get("/system") { call.respondJson(systemInfo(orkbox, config, version)) }
 
             route("/sessions") {
                 post {
@@ -305,6 +319,73 @@ private suspend fun ApplicationCall.output(execution: Execution) {
 
 @Serializable
 internal data class OutputChunk(val offset: Long, val text: String)
+
+// ---- system overview -----------------------------------------------------------------------
+
+private suspend fun systemInfo(orkbox: Orkbox, config: Config, version: String): SystemInfo {
+    val all = orkbox.sessions.list(null, null, emptyMap())
+    val active = all.filter { it.isActive }
+    return SystemInfo(
+        info = Info(
+            name = "orkbox",
+            version = version,
+            defaultRuntime = config.defaultRuntime,
+            runtimes = orkbox.sessions.runtimes.values.map { it.info(it.unavailableReason()) },
+            defaultTtlSeconds = config.defaultTtlSeconds,
+            maxTtlSeconds = config.maxTtlSeconds,
+            defaultIdleTimeoutSeconds = config.defaultIdleTimeoutSeconds,
+            maxSessions = config.maxSessions,
+        ),
+        startedAt = orkbox.startedAt.toString(),
+        uptimeSeconds = Duration.between(orkbox.startedAt, Instant.now()).toSeconds(),
+        host = hostInfo(config),
+        sessions = SystemSessions(
+            active = active.size,
+            maxSessions = config.maxSessions,
+            total = all.size,
+            byStatus = all.groupingBy { it.status }.eachCount(),
+            cpus = active.sumOf { it.resources?.cpus?.toDouble() ?: 0.0 },
+            memoryMb = active.sumOf { it.resources?.memoryMb?.toLong() ?: 0L },
+        ),
+    )
+}
+
+private fun hostInfo(config: Config): HostInfo {
+    val MB = 1_048_576L
+    val jvm = Runtime.getRuntime()
+    val memory = ManagementFactory.getMemoryMXBean()
+    val heap = memory.heapMemoryUsage
+    val os = ManagementFactory.getOperatingSystemMXBean()
+    val load = os.systemLoadAverage.takeIf { it >= 0 }
+    // The com.sun.management extension carries physical and swap sizes on a standard JDK;
+    // where it is missing (e.g. a minimal JVM) the JVM's own memory is shown instead.
+    val ext = os as? OperatingSystemMXBean
+    val physical = ext?.let { it.totalPhysicalMemorySize to (it.totalPhysicalMemorySize - it.freePhysicalMemorySize) }?.takeIf { it.first >= 0 }
+    val swap = ext?.let { it.totalSwapSpaceSize to (it.totalSwapSpaceSize - it.freeSwapSpaceSize) }?.takeIf { it.first >= 0 }
+    val diskRoot = runCatching {
+        val root = Path.of(config.local.root.toString()).toAbsolutePath()
+        root.parent ?: root
+    }.getOrDefault(Path.of(System.getProperty("user.dir")))
+    val disk = runCatching {
+        val store = Files.getFileStore(diskRoot)
+        store.totalSpace to (store.totalSpace - store.usableSpace)
+    }.getOrNull()
+    return HostInfo(
+        os = System.getProperty("os.name"),
+        architecture = System.getProperty("os.arch"),
+        java = System.getProperty("java.version"),
+        cpuCores = jvm.availableProcessors(),
+        loadAverage = load,
+        memoryTotalMb = (physical?.first ?: heap.committed) / MB,
+        memoryUsedMb = (physical?.second ?: heap.used) / MB,
+        swapTotalMb = swap?.first?.div(MB),
+        swapUsedMb = swap?.second?.div(MB),
+        diskTotalMb = disk?.let { it.first / MB },
+        diskUsedMb = disk?.let { it.second / MB },
+        jvmUsedMb = heap.used / MB,
+        jvmMaxMb = (heap.max / MB).takeIf { it > 0 },
+    )
+}
 
 // ---- helpers --------------------------------------------------------------------------------
 

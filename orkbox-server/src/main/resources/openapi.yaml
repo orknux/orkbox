@@ -70,6 +70,27 @@ paths:
       security: []
       responses:
         '200': { description: An HTML page., content: { text/html: { schema: { type: string } } } }
+  /:
+    get:
+      tags: [service]
+      operationId: getUi
+      summary: The built-in UI
+      description: The same page as `/ui`.
+      security: []
+      responses:
+        '200': { description: An HTML page., content: { text/html: { schema: { type: string } } } }
+  /ui:
+    get:
+      tags: [service]
+      operationId: getUiPage
+      summary: The built-in UI
+      description: |
+        A self-contained page (sessions, their logs, stopping sessions,
+        server and host resources). It asks for the bearer token in the
+        browser; the token never leaves it. Needs no token to load.
+      security: []
+      responses:
+        '200': { description: An HTML page., content: { text/html: { schema: { type: string } } } }
 
   /v1/info:
     get:
@@ -78,6 +99,16 @@ paths:
       operationId: getInfo
       responses:
         '200': { description: Service information., content: { application/json: { schema: { $ref: '#/components/schemas/Info' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/system:
+    get:
+      tags: [service]
+      summary: Server and host overview
+      description: What the built-in UI's overview tab shows — service information, uptime, the host's CPUs, memory, disk and JVM heap, and the session counts and limits of every active session.
+      operationId: getSystem
+      responses:
+        '200': { description: The overview., content: { application/json: { schema: { $ref: '#/components/schemas/SystemInfo' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /v1/sessions:
@@ -801,3 +832,42 @@ components:
         maxTtlSeconds: { type: integer, format: int64 }
         defaultIdleTimeoutSeconds: { type: integer, format: int64 }
         maxSessions: { type: integer }
+
+    HostInfo:
+      type: object
+      required: [os, architecture, java, cpuCores]
+      properties:
+        os: { type: string }
+        architecture: { type: string }
+        java: { type: string }
+        cpuCores: { type: integer }
+        loadAverage: { type: [number, 'null'], description: Load over the last minute; absent where the JVM cannot read it. }
+        memoryTotalMb: { type: [integer, 'null'], format: int64, description: Physical host memory; the JVM's own memory where the JVM cannot report it. }
+        memoryUsedMb: { type: [integer, 'null'], format: int64 }
+        swapTotalMb: { type: [integer, 'null'], format: int64 }
+        swapUsedMb: { type: [integer, 'null'], format: int64 }
+        diskTotalMb: { type: [integer, 'null'], format: int64, description: The file system holding the local workspaces. }
+        diskUsedMb: { type: [integer, 'null'], format: int64 }
+        jvmUsedMb: { type: [integer, 'null'], format: int64 }
+        jvmMaxMb: { type: [integer, 'null'], format: int64, description: 'The JVM heap cap, in MB; absent where the JVM cannot report it.' }
+
+    SystemSessions:
+      type: object
+      required: [active, maxSessions, total, byStatus, cpus, memoryMb]
+      properties:
+        active: { type: integer }
+        maxSessions: { type: integer }
+        total: { type: integer, description: All sessions still readable, including stopped and failed ones. }
+        byStatus: { $ref: '#/components/schemas/StringMap', description: Sessions per status, as a status-to-count map. }
+        cpus: { type: number, description: CPU limits of the active sessions added up. }
+        memoryMb: { type: integer, format: int64, description: Memory limits of the active sessions added up. }
+
+    SystemInfo:
+      type: object
+      required: [info, startedAt, uptimeSeconds, host, sessions]
+      properties:
+        info: { $ref: '#/components/schemas/Info' }
+        startedAt: { type: string, format: date-time }
+        uptimeSeconds: { type: integer, format: int64 }
+        host: { $ref: '#/components/schemas/HostInfo' }
+        sessions: { $ref: '#/components/schemas/SystemSessions' }

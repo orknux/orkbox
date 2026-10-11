@@ -6,6 +6,7 @@ import io.mszymanski.orknux.orkbox.runtime.Runtime
 import io.mszymanski.orknux.orkbox.session.FileService
 import io.mszymanski.orknux.orkbox.session.SessionManager
 import kotlinx.coroutines.runBlocking
+import java.time.Instant
 
 /**
  * The embeddable entry point: everything the HTTP API offers, as a library.
@@ -31,6 +32,8 @@ class Orkbox(
 
     val sessions = SessionManager(config, runtimes)
     val files = FileService()
+    /** When this instance was constructed; the server's uptime is measured from it. */
+    val startedAt: Instant = Instant.now()
 
     /** Starts the reaper and removes sandboxes left behind by a previous run. */
     fun start(): Orkbox {
