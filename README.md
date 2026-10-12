@@ -107,14 +107,14 @@ The service itself is small; what a host needs is decided by the sessions it
 runs. A default session may use 2 CPUs and 4 GB of memory, and the default
 image is about 1.7 GB.
 
-| | minimal | recommended |
-|---|---|---|
-| CPU | 2 cores | 8 cores |
-| memory | 4 GB | 16 GB |
-| disk | 20 GB free | 50 GB free, SSD |
-| sessions at once | 1 | 3–4 |
-| container engine | Docker Engine, Docker Desktop or Podman | Docker Engine on Linux |
-| Java (jar only) | 25 | 25 |
+| | minimal | two sessions | recommended |
+|---|---|---|---|
+| CPU | 2 cores | 4 cores | 8 cores |
+| memory | 4 GB | 8 GB | 16 GB |
+| disk | 20 GB free | 30 GB free | 50 GB free, SSD |
+| sessions at once | 1 | 2 | 3–4 |
+| container engine | Docker Engine, Docker Desktop or Podman | Docker Engine, Docker Desktop or Podman | Docker Engine on Linux |
+| Java (jar only) | 25 | 25 | 25 |
 
 Session limits are caps, not reservations: a host can run more sessions than it
 could hold at their limits, until they all build at once. On a minimal host
