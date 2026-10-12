@@ -101,6 +101,28 @@ Engine on Linux (unix socket), remote daemons (`DOCKER_HOST`) and Podman, and
 nothing reflective for native images. The CLI has to be on the `PATH` of the
 service.
 
+## System requirements
+
+The service itself is small; what a host needs is decided by the sessions it
+runs. A default session may use 2 CPUs and 4 GB of memory, and the default
+image is about 1.7 GB.
+
+| | minimal | recommended |
+|---|---|---|
+| CPU | 2 cores | 8 cores |
+| memory | 4 GB | 16 GB |
+| disk | 20 GB free | 50 GB free, SSD |
+| sessions at once | 1 | 3–4 |
+| container engine | Docker Engine, Docker Desktop or Podman | Docker Engine on Linux |
+| Java (jar only) | 25 | 25 |
+
+Session limits are caps, not reservations: a host can run more sessions than it
+could hold at their limits, until they all build at once. On a minimal host
+lower `ORKBOX_DOCKER_DEFAULT_MEMORY_MB` to 2048 so one session cannot take the
+whole machine. Disk goes on the toolchain image, the shared dependency caches
+(a Maven or npm cache reaches several GB) and each session's workspace. The
+native image needs no Java; the `local` runtime needs no container engine.
+
 ## Running the server
 
 ```sh
