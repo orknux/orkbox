@@ -297,7 +297,9 @@ paths:
       summary: Execute a command
       description: |
         Responds `200` when the command finished within `waitSeconds`, or `202`
-        while it is still running (poll or long-poll the execution).
+        while it is still running (poll or long-poll the execution). An idle
+        session starting work takes a place against `maxSessions`, and is
+        refused with `429 too_many_sessions` while every place is taken.
       operationId: execute
       requestBody:
         required: true
@@ -309,6 +311,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/Problem' }
     get:
       tags: [executions]
       summary: List executions
@@ -981,8 +984,10 @@ components:
       type: object
       required: [active, maxSessions, total, byStatus, cpus, memoryMb]
       properties:
-        active: { type: integer }
-        maxSessions: { type: integer }
+        active: { type: integer, description: Open sessions, busy and idle together. }
+        busy: { type: integer, description: Being created or running a command; what maxSessions limits. }
+        idle: { type: integer, description: Open with nothing running; takes no place against maxSessions. }
+        maxSessions: { type: integer, description: Sessions working at once. }
         total: { type: integer, description: All sessions still readable, including stopped and failed ones. }
         byStatus: { $ref: '#/components/schemas/StringMap', description: Sessions per status, as a status-to-count map. }
         cpus: { type: number, description: CPU limits of the active sessions added up. }

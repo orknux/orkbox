@@ -257,7 +257,12 @@ data class HostInfo(
 
 @Serializable
 data class SystemSessions(
+    /** Open: busy and idle together. */
     val active: Int,
+    /** Being made or running a command: what [maxSessions] limits. */
+    val busy: Int = 0,
+    /** Open with nothing running; takes no place against [maxSessions]. */
+    val idle: Int = 0,
     val maxSessions: Int,
     val total: Int,
     val byStatus: Map<String, Int>,

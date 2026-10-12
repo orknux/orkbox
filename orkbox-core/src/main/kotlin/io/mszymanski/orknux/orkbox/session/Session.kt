@@ -78,6 +78,9 @@ class Session(
 
     val isActive: Boolean get() = status == SessionStatus.CREATING || status == SessionStatus.READY
 
+    /** Being made, or running a command: what [Config.maxSessions] counts. Open with nothing running is idle. */
+    val isBusy: Boolean get() = status == SessionStatus.CREATING || (status == SessionStatus.READY && executions().any { it.isRunning })
+
     fun requireReady(): Sandbox {
         val sandbox = sandbox
         if (status != SessionStatus.READY || sandbox == null) {

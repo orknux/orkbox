@@ -43,6 +43,37 @@ class LocalSessionTest : SessionContract() {
     override val sleepCommand = if (windows) "ping -n 60 127.0.0.1 >nul" else "sleep 60"
     override val catCommand = if (windows) "sort" else "cat"
 
+    /**
+     * The limit counts sessions working, not sessions open: an idle one takes
+     * no place, and takes one when it starts a command.
+     */
+    @Test
+    fun `only working sessions count against the most a box takes`(): Unit = runBlocking {
+        val one = Orkbox(config().copy(maxSessions = 1))
+        try {
+            val first = one.sessions.create(createRequest())
+            val second = one.sessions.create(createRequest())
+            assertEquals(SessionStatus.READY, second.status, "an idle session left room for another")
+
+            val working = one.sessions.execute(first, ExecuteRequest(command = sleepCommand))
+            assertEquals("too_many_sessions", kotlin.test.assertFailsWith<ApiException> { one.sessions.create(createRequest()) }.code)
+            assertEquals(
+                "too_many_sessions",
+                kotlin.test.assertFailsWith<ApiException> { one.sessions.execute(second, ExecuteRequest(command = printEnvCommand)) }.code,
+                "an idle session starting work takes a place, and there is none",
+            )
+            // The working one may start more: it already holds its place.
+            one.sessions.execute(first, ExecuteRequest(command = printEnvCommand))
+
+            one.sessions.signal(first, working, io.mszymanski.orknux.orkbox.runtime.Signal.KILL)
+            assertTrue(one.sessions.await(first, working, 30))
+            delay(500)
+            one.sessions.execute(second, ExecuteRequest(command = printEnvCommand))
+        } finally {
+            one.close()
+        }
+    }
+
     /** A local session's port is this machine's: the forward reaches it directly. */
     @Test
     fun `a forwarded port carries a connection to what listens on it`() = runBlocking {

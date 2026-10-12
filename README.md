@@ -112,11 +112,13 @@ image is about 1.7 GB.
 | CPU | 2 cores | 4 cores | 8 cores |
 | memory | 4 GB | 8 GB | 16 GB |
 | disk | 20 GB free | 30 GB free | 50 GB free, SSD |
-| sessions at once | 1 | 2 | 3–4 |
+| sessions working at once | 1 | 2 | 3–4 |
 | container engine | Docker Engine, Docker Desktop or Podman | Docker Engine, Docker Desktop or Podman | Docker Engine on Linux |
 | Java (jar only) | 25 | 25 | 25 |
 
-Session limits are caps, not reservations: a host can run more sessions than it
+Idle sessions take no place against `ORKBOX_MAX_SESSIONS` and little memory, so
+the rows above count sessions working at once; each one open still keeps a
+container and its workspace on disk. Session limits are caps, not reservations: a host can run more sessions than it
 could hold at their limits, until they all build at once. On a minimal host
 lower `ORKBOX_DOCKER_DEFAULT_MEMORY_MB` to 2048 so one session cannot take the
 whole machine. Disk goes on the toolchain image, the shared dependency caches
@@ -166,7 +168,7 @@ Environment variables (or system properties: `ORKBOX_MAX_SESSIONS` ->
 | `ORKBOX_DEFAULT_TTL_SECONDS` / `ORKBOX_MAX_TTL_SECONDS` | `7200` / `86400` | Session lifetime. |
 | `ORKBOX_DEFAULT_IDLE_TIMEOUT_SECONDS` | `900` | Idle sessions are stopped after this. |
 | `ORKBOX_RETENTION_SECONDS` | `86400` | How long stopped sessions stay readable. |
-| `ORKBOX_MAX_SESSIONS` | `50` | Active sessions at once. |
+| `ORKBOX_MAX_SESSIONS` | `50` | Sessions working at once - being created or running a command. Idle sessions, open with nothing running, do not count. |
 | `ORKBOX_MAX_OUTPUT_BYTES` | `4194304` | Output kept per execution stream. |
 | `ORKBOX_KILL_GRACE_SECONDS` | `10` | Between SIGTERM and SIGKILL on timeout. |
 | `ORKBOX_MAX_PORTS` | `5` | Ports one session may have forwarded at once. |

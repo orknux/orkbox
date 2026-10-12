@@ -90,7 +90,7 @@ number of active sessions.
     "jvmUsedMb": 512, "jvmMaxMb": 8192
   },
   "sessions": {
-    "active": 2, "maxSessions": 50, "total": 3,
+    "active": 2, "busy": 1, "idle": 1, "maxSessions": 50, "total": 3,
     "byStatus": { "ready": 2, "stopped": 1 },
     "cpus": 4.0, "memoryMb": 8192
   }
@@ -148,8 +148,10 @@ for the retention period.
 Runtime differences: `image`, `resources`, `caches` and `network: "none"` are
 `docker` only. `local` rejects `image` and `network: "none"`, and ignores
 `resources` and `caches` (reported as `null` / `[]`). Requests above the
-configured maximums fail with `limit_exceeded`; more active sessions than
-allowed with `429 too_many_sessions`.
+configured maximums fail with `limit_exceeded`. `maxSessions` limits sessions
+*working* at once - being created or running a command; an idle session, open
+with nothing running, takes no place. A create, or a command started in an
+idle session, while every place is taken fails with `429 too_many_sessions`.
 
 
 ### `GET /v1/sessions/{id}` — session details

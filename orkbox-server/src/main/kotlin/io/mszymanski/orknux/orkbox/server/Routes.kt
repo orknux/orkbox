@@ -379,6 +379,8 @@ private suspend fun systemInfo(orkbox: Orkbox, config: Config, version: String):
         host = hostInfo(config),
         sessions = SystemSessions(
             active = active.size,
+            busy = active.count { it.isBusy },
+            idle = active.count { !it.isBusy },
             maxSessions = config.maxSessions,
             total = all.size,
             byStatus = all.groupingBy { it.status }.eachCount(),

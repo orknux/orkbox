@@ -20,6 +20,12 @@ data class Config(
     val defaultIdleTimeoutSeconds: Long = 15 * 60,
     /** How long a stopped session's record and logs stay readable. */
     val retentionSeconds: Long = 24 * 3600,
+    /**
+     * Sessions working at once - being created, or running a command. An idle
+     * session, open with nothing running, takes no place: it is a container
+     * waiting, and capping those capped how many conversations could keep a
+     * workspace open rather than how much work the host does.
+     */
     val maxSessions: Int = 50,
 
     /** Output kept per execution stream; beyond it only the tail is retained. */

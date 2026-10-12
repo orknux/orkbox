@@ -114,9 +114,7 @@ class SessionManager(
         )
         session.forwards = PortForwarder(config.publishHost)
         synchronized(sessions) {
-            if (sessions.values.count { it.isActive } >= config.maxSessions) {
-                throw ApiException(429, "too_many_sessions", "Too many sessions", "At most ${config.maxSessions} sessions may be active")
-            }
+            requireRoom()
             sessions[session.id] = session
         }
         session.events.append("session.created", buildJsonObject {
@@ -146,6 +144,16 @@ class SessionManager(
         }
         session.touch()
         return session
+    }
+
+    /** Refuses when [Config.maxSessions] sessions are working; idle ones are not counted. Called holding `sessions`. */
+    private fun requireRoom() {
+        if (sessions.values.count { it.isBusy } >= config.maxSessions) {
+            throw ApiException(
+                429, "too_many_sessions", "Too many sessions",
+                "At most ${config.maxSessions} sessions may be working at once; try again when one finishes",
+            )
+        }
     }
 
     private fun resources(requested: Resources?): Resources {
@@ -322,7 +330,11 @@ class SessionManager(
         val cwd = WorkspacePath.normalize(request.cwd, sandbox.workdir, caseInsensitive = session.runtime == Config.RUNTIME_LOCAL)
 
         val execution = Execution(Ids.execution(), session.id, request.command, request.argv, cwd, config.maxOutputBytes)
-        session.add(execution)
+        // An idle session starting work takes a place; one already working has it.
+        synchronized(sessions) {
+            if (!session.isBusy) requireRoom()
+            session.add(execution)
+        }
         session.events.append("execution.started", buildJsonObject {
             put("executionId", execution.id)
             request.command?.let { put("command", it) }
