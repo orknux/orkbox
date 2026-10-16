@@ -27,6 +27,7 @@ host. From this directory:
 ```sh
 cd ../.. && ./mvnw package -DskipTests && cd deploy/ansible   # builds the jar
 cp inventory.example.ini inventory.ini                         # name your host
+mkdir -p group_vars
 ansible-vault encrypt_string 'a-long-random-token' --name orkbox_token \
   >> group_vars/orkbox.yml
 ansible-playbook orkbox.yml --ask-vault-pass
