@@ -1,0 +1,4 @@
+# Your hosts and their settings - the token among them - stay out of git.
+inventory.ini
+group_vars/
+host_vars/
