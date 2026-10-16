@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: orkbox
+  author: orknux
+  description: Runs the orkbox Session API as a systemd service with Docker sessions.
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [bookworm, trixie]
+    - name: Ubuntu
+      versions: [jammy, noble]
+dependencies: []

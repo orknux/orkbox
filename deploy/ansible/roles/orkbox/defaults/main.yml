@@ -1,0 +1,42 @@
+---
+# Where the jar comes from. A path on the machine running Ansible, by default
+# the one `./mvnw package` leaves behind; or set orkbox_jar_url (and
+# orkbox_jar_checksum, e.g. "sha256:...") to have the host download it.
+orkbox_jar_src: "{{ playbook_dir }}/../../orkbox-server/target/orkbox.jar"
+orkbox_jar_url: ""
+orkbox_jar_checksum: ""
+
+# Authentication. One of the two is required: a bearer token, or a user and
+# password for the built-in UI's sign-in. Keep them in Ansible Vault.
+orkbox_token: ""
+orkbox_user: ""
+orkbox_password: ""
+
+orkbox_host: "0.0.0.0"
+orkbox_port: 8080
+
+# Any other ORKBOX_* setting from the README's configuration table, by name:
+#   orkbox_settings:
+#     ORKBOX_MAX_SESSIONS: 4
+#     ORKBOX_DOCKER_DEFAULT_MEMORY_MB: 2048
+orkbox_settings: {}
+
+# The session image, pulled at install so the first session does not wait
+# for 1.7 GB. Follows ORKBOX_DOCKER_DEFAULT_IMAGE when that is set above.
+orkbox_toolchain_image: "{{ orkbox_settings.ORKBOX_DOCKER_DEFAULT_IMAGE | default('orknux/orkbox-toolchain:latest') }}"
+orkbox_pull_toolchain: true
+
+# What to install. Turn either off on a host that already has it - Docker
+# Desktop, Podman, or a JDK installed some other way.
+orkbox_install_docker: true
+orkbox_install_java: true
+orkbox_java_package: temurin-25-jre
+# The java the service is started with.
+orkbox_java: /usr/bin/java
+# Heap for the service itself; sessions run in containers and are not in it.
+orkbox_java_opts: "-Xmx512m"
+
+orkbox_service_user: orkbox
+orkbox_install_dir: /opt/orkbox
+orkbox_config_dir: /etc/orkbox
+orkbox_data_dir: /var/lib/orkbox

@@ -1,0 +1,112 @@
+---
+- name: Check the host and the settings
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "Debian" or not (orkbox_install_docker or orkbox_install_java)
+      - orkbox_token | length > 0 or (orkbox_user | length > 0 and orkbox_password | length > 0)
+    fail_msg: >-
+      orkbox needs orkbox_token, or orkbox_user and orkbox_password; and installs
+      Docker and Java itself only on Debian and Ubuntu - elsewhere set
+      orkbox_install_docker and orkbox_install_java to false and provide both.
+    quiet: true
+
+- name: Install Docker Engine
+  ansible.builtin.import_tasks: docker.yml
+  when: orkbox_install_docker
+
+- name: Install Java
+  ansible.builtin.import_tasks: java.yml
+  when: orkbox_install_java
+
+- name: Create the service user
+  ansible.builtin.user:
+    name: "{{ orkbox_service_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ orkbox_data_dir }}"
+    create_home: false
+    # The docker group is what lets it start session containers - and is as
+    # good as root on this host, which is why orkbox wants a host of its own.
+    groups: docker
+    append: true
+  notify: Restart orkbox
+
+- name: Create the directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ orkbox_service_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ orkbox_install_dir }}", owner: root, mode: "0755" }
+    - { path: "{{ orkbox_config_dir }}", owner: root, mode: "0750" }
+    - { path: "{{ orkbox_data_dir }}", owner: "{{ orkbox_service_user }}", mode: "0750" }
+    - { path: "{{ orkbox_data_dir }}/tmp", owner: "{{ orkbox_service_user }}", mode: "0750" }
+    - { path: "{{ orkbox_data_dir }}/local", owner: "{{ orkbox_service_user }}", mode: "0750" }
+
+- name: Copy the jar
+  ansible.builtin.copy:
+    src: "{{ orkbox_jar_src }}"
+    dest: "{{ orkbox_install_dir }}/orkbox.jar"
+    owner: root
+    group: root
+    mode: "0644"
+  when: orkbox_jar_url | length == 0
+  notify: Restart orkbox
+
+- name: Download the jar
+  ansible.builtin.get_url:
+    url: "{{ orkbox_jar_url }}"
+    checksum: "{{ orkbox_jar_checksum | default(omit, true) }}"
+    dest: "{{ orkbox_install_dir }}/orkbox.jar"
+    owner: root
+    group: root
+    mode: "0644"
+  when: orkbox_jar_url | length > 0
+  notify: Restart orkbox
+
+- name: Write the settings
+  ansible.builtin.template:
+    src: orkbox.env.j2
+    dest: "{{ orkbox_config_dir }}/orkbox.env"
+    owner: root
+    group: "{{ orkbox_service_user }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart orkbox
+
+- name: Write the service unit
+  ansible.builtin.template:
+    src: orkbox.service.j2
+    dest: /etc/systemd/system/orkbox.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart orkbox
+
+- name: Pull the session image
+  ansible.builtin.command: "docker pull {{ orkbox_toolchain_image }}"
+  register: orkbox_pulled
+  changed_when: "'Downloaded newer image' in orkbox_pulled.stdout"
+  when: orkbox_pull_toolchain
+
+# Restarting first and starting after, so a first install starts the service
+# once: started and then restarted, it was killed while it was coming up.
+- name: Apply a changed jar, unit or setting
+  ansible.builtin.meta: flush_handlers
+
+- name: Start orkbox, and start it on boot
+  ansible.builtin.systemd_service:
+    name: orkbox
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait until orkbox answers
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ orkbox_port }}/healthz"
+  register: orkbox_health
+  until: orkbox_health.status == 200
+  retries: 30
+  delay: 2

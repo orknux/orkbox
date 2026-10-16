@@ -1,0 +1,29 @@
+# Managed by Ansible (orkbox role).
+[Unit]
+Description=orkbox Session API
+Documentation=https://github.com/orknux/orkbox
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{ orkbox_service_user }}
+Group={{ orkbox_service_user }}
+WorkingDirectory={{ orkbox_data_dir }}
+EnvironmentFile={{ orkbox_config_dir }}/orkbox.env
+Environment=JAVA_TOOL_OPTIONS=-Djava.io.tmpdir={{ orkbox_data_dir }}/tmp
+ExecStart={{ orkbox_java }} {{ orkbox_java_opts }} -jar {{ orkbox_install_dir }}/orkbox.jar
+# Sessions are containers; stopping the service stops them, and the next start
+# removes what a crash left behind (ORKBOX_DOCKER_CLEANUP_ON_START).
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+---
+# Temurin from Adoptium's repository: Debian and Ubuntu do not package Java 25
+# on every release orkbox supports.
+- name: Install the packages the repository needs
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, gnupg]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Add Adoptium's signing key
+  ansible.builtin.get_url:
+    url: https://packages.adoptium.net/artifactory/api/gpg/key/public
+    dest: /etc/apt/keyrings/adoptium.asc
+    mode: "0644"
+
+- name: Add Adoptium's repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/adoptium.asc]
+      https://packages.adoptium.net/artifactory/deb
+      {{ ansible_facts.distribution_release }} main
+    filename: adoptium
+    state: present
+
+- name: Install Java
+  ansible.builtin.apt:
+    name: "{{ orkbox_java_package }}"
+    state: present

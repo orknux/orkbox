@@ -1,0 +1,67 @@
+---
+# Stops orkbox and removes what the orkbox role installed: the service, the
+# jar, the settings and the workspaces. Docker, Java and the session image
+# stay, since other things may use them, and so do the shared dependency
+# caches unless asked: -e orkbox_remove_caches=true.
+- name: Remove orkbox
+  hosts: orkbox
+  become: true
+  vars:
+    orkbox_remove_caches: false
+  tasks:
+    - name: Load the role's defaults
+      ansible.builtin.include_vars:
+        file: roles/orkbox/defaults/main.yml
+
+    - name: Stop orkbox
+      ansible.builtin.systemd_service:
+        name: orkbox
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    # Stopping the service stops its sessions; their containers go too, since
+    # nothing will start orkbox again to clean them up.
+    - name: Find the session containers
+      ansible.builtin.command: docker ps -aq --filter label=orknux.orkbox=true
+      register: orkbox_containers
+      changed_when: false
+      failed_when: false
+
+    - name: Remove the session containers
+      ansible.builtin.command: "docker rm -f {{ orkbox_containers.stdout_lines | join(' ') }}"
+      changed_when: true
+      when: orkbox_containers.stdout_lines | default([]) | length > 0
+
+    - name: Remove the service, jar, settings and workspaces
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/orkbox.service
+        - "{{ orkbox_install_dir }}"
+        - "{{ orkbox_config_dir }}"
+        - "{{ orkbox_data_dir }}"
+
+    - name: Forget the unit
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+    - name: Remove the service user
+      ansible.builtin.user:
+        name: "{{ orkbox_service_user }}"
+        state: absent
+
+    - name: Find the shared caches
+      ansible.builtin.command: >-
+        docker volume ls -q --filter
+        name=^{{ orkbox_settings.ORKBOX_DOCKER_CACHE_VOLUME_PREFIX | default('orkbox-cache-') }}
+      register: orkbox_caches
+      changed_when: false
+      when: orkbox_remove_caches
+
+    - name: Remove the shared caches
+      ansible.builtin.command: "docker volume rm {{ item }}"
+      loop: "{{ orkbox_caches.stdout_lines | default([]) }}"
+      changed_when: true
+      when: orkbox_remove_caches

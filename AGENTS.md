@@ -19,6 +19,7 @@ talks to no LLM provider — don't add model clients, prompts or agent logic.
 | `orkbox-server` | Ktor (CIO) HTTP server: `Routes.kt`, `Http.kt`, `Main.kt`, `OpenApi.kt`, the hand-written `src/main/resources/openapi.yaml`, and `ui.html`, the built-in UI page served at `/` and `/ui`. |
 | `.github/workflows` | `ci.yaml` — runs `./mvnw verify` on PRs and pushes to main; uploads the shaded `orkbox.jar` on main. |
 | `images/toolchain` | Dockerfile for `orknux/orkbox-toolchain`, the default session image. |
+| `deploy/ansible` | The `orkbox` Ansible role and playbooks: install as a systemd service on Debian/Ubuntu, and remove. A new `ORKBOX_*` setting needs nothing there - `orkbox_settings` passes any of them through. |
 | `docs/session-api.md` | The API specification. |
 
 Package root: `io.mszymanski.orknux.orkbox`.

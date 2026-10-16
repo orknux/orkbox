@@ -4,3 +4,6 @@
 Dockerfile* text eol=lf
 mvnw text eol=lf
 mvnw.cmd text eol=crlf
+# The Ansible role renders its templates onto Linux hosts as they are; a CRLF
+# template ends every value in the env file with a carriage return.
+deploy/ansible/** text eol=lf

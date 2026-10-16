@@ -139,6 +139,10 @@ curl -s -H 'Authorization: Bearer change-me' -H 'Content-Type: application/json'
      localhost:8080/v1/sessions
 ```
 
+To install it on a Debian or Ubuntu host as a systemd service - Docker, Java,
+the session image and the service itself - use the Ansible playbook in
+[deploy/ansible](deploy/ansible/README.md).
+
 The OpenAPI 3.1 document is served at `/openapi.yaml` and browsable at
 `/docs` (Swagger UI), both without a token. It is maintained by hand in
 `orkbox-server/src/main/resources/openapi.yaml`; a test fails when it no

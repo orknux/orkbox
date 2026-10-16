@@ -1,0 +1,10 @@
+---
+# Installs orkbox, or upgrades it to the jar given: run it again after
+# `./mvnw package` and the service restarts on the new one.
+#
+#   ansible-playbook orkbox.yml --ask-vault-pass
+- name: Install orkbox
+  hosts: orkbox
+  become: true
+  roles:
+    - orkbox
