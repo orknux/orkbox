@@ -1,0 +1,65 @@
+---
+# Everything here runs before anything is installed, so a host that cannot take
+# orkbox is turned away with a sentence rather than left half done - a port
+# someone else holds shows up as /healthz never answering, and a full disk as a
+# pull that dies partway and takes the rest of the host with it. Nothing here
+# changes the host, so it runs in --check too.
+- name: Check the host and the settings
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "Debian" or not (orkbox_install_docker or orkbox_install_java)
+      - orkbox_token | length > 0 or (orkbox_user | length > 0 and orkbox_password | length > 0)
+    fail_msg: >-
+      orkbox needs orkbox_token, or orkbox_user and orkbox_password; and installs
+      Docker and Java itself only on Debian and Ubuntu - elsewhere set
+      orkbox_install_docker and orkbox_install_java to false and provide both.
+    quiet: true
+
+- name: Read the services on the host
+  ansible.builtin.service_facts:
+
+- name: Note whether orkbox is installed here already
+  ansible.builtin.set_fact:
+    orkbox_installed: "{{ 'orkbox.service' in ansible_facts.services }}"
+    orkbox_running: "{{ ansible_facts.services['orkbox.service'].state | default('') == 'running' }}"
+
+- name: Find what listens on orkbox's port
+  ansible.builtin.command: "ss -Hltnp sport = :{{ orkbox_port }}"
+  register: orkbox_port_listeners
+  changed_when: false
+  check_mode: false
+  when: not orkbox_running
+
+- name: Check that the port is free
+  ansible.builtin.assert:
+    that: orkbox_port_listeners.stdout | length == 0
+    fail_msg: >-
+      Port {{ orkbox_port }} is taken on this host
+      ({{ orkbox_port_listeners.stdout | regex_search('users:.*') | default('by a process sudo would name', true) }}).
+      Set orkbox_port to a free one.
+    quiet: true
+  when: not orkbox_running
+
+# Where the session image, the shared caches and the workspaces will go:
+# Docker's root when Docker is there, /var/lib where it will be.
+- name: Measure the free space for sessions
+  ansible.builtin.shell: |
+    root=$(docker info --format '{% raw %}{{.DockerRootDir}}{% endraw %}' 2>/dev/null) || root=/var/lib
+    df -Pk "$root" | awk -v root="$root" 'NR == 2 { print root, $4 }'
+  register: orkbox_free
+  changed_when: false
+  check_mode: false
+  when: not orkbox_installed and orkbox_min_free_gb | int > 0
+
+- name: Check that there is room for sessions
+  vars:
+    orkbox_free_gb: "{{ ((orkbox_free.stdout.split()[1] | int) / 1048576) | round(1) }}"
+  ansible.builtin.assert:
+    that: orkbox_free_gb | float >= orkbox_min_free_gb | float
+    fail_msg: >-
+      {{ orkbox_free_gb }} GB is free under {{ orkbox_free.stdout.split()[0] }} and orkbox
+      wants {{ orkbox_min_free_gb }}: the session image is 1.7 GB, and the dependency
+      caches and workspaces grow from there. Free some space, or lower
+      orkbox_min_free_gb if you know the sessions will be small.
+    quiet: true
+  when: not orkbox_installed and orkbox_min_free_gb | int > 0

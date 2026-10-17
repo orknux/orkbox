@@ -1,14 +1,6 @@
 ---
-- name: Check the host and the settings
-  ansible.builtin.assert:
-    that:
-      - ansible_facts.os_family == "Debian" or not (orkbox_install_docker or orkbox_install_java)
-      - orkbox_token | length > 0 or (orkbox_user | length > 0 and orkbox_password | length > 0)
-    fail_msg: >-
-      orkbox needs orkbox_token, or orkbox_user and orkbox_password; and installs
-      Docker and Java itself only on Debian and Ubuntu - elsewhere set
-      orkbox_install_docker and orkbox_install_java to false and provide both.
-    quiet: true
+- name: Check that the host can take orkbox
+  ansible.builtin.import_tasks: checks.yml
 
 - name: Install Docker Engine
   ansible.builtin.import_tasks: docker.yml

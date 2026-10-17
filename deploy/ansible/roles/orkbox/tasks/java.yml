@@ -25,7 +25,7 @@
     repo: >-
       deb [signed-by=/etc/apt/keyrings/adoptium.asc]
       https://packages.adoptium.net/artifactory/deb
-      {{ ansible_facts.distribution_release }} main
+      {{ orkbox_adoptium_release }} main
     filename: adoptium
     state: present
 
