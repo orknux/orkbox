@@ -27,7 +27,9 @@ see the [system requirements](../../README.md#system-requirements).
 
 Ansible 2.15 or later on the machine you run it from, and SSH with sudo on the
 host. Ansible does not run on Windows: use WSL there, and the commands below as
-they are. From this directory:
+they are. Without Ansible, `./ansible-playbook.sh` runs it from a throwaway
+container and takes the same arguments - it needs only Docker
+(`./ansible-playbook.sh --help`). From this directory:
 
 ```sh
 cd ../.. && ./mvnw package -DskipTests && cd deploy/ansible   # builds the jar
