@@ -48,7 +48,8 @@ which an agent's actions are carried out.
 - **Real builds out of the box** — the default container image can build
   Maven, Gradle, Node.js, C and C++ projects without extra setup (JDK, Maven,
   Gradle, Node.js with npm/pnpm/yarn, gcc/g++, clang, make, CMake, Ninja, git,
-  plus the usual shell tools). Dependency caches (`~/.m2`, `~/.gradle`,
+  ripgrep, universal-ctags and ast-grep for reading code, plus the usual shell
+  tools). Dependency caches (`~/.m2`, `~/.gradle`,
   `~/.npm`, ...) can be shared between sessions so builds don't re-download the
   internet each time.
 - **Bounded sessions** — CPU, memory, disk and process limits, an optional

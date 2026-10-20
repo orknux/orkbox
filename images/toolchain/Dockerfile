@@ -1,7 +1,8 @@
 # orknux/orkbox-toolchain: the default image for docker sessions.
 #
-# Builds Maven, Gradle, Node.js, C and C++ projects out of the box. Commands
-# run as root, so agents can apt-get install anything else they need.
+# Builds Maven, Gradle, Node.js, C and C++ projects out of the box, and reads
+# code with ripgrep, universal-ctags and ast-grep. Commands run as root, so
+# agents can apt-get install anything else they need.
 #
 #   docker build -t orknux/orkbox-toolchain:latest images/toolchain
 #
@@ -19,7 +20,7 @@ FROM ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl wget gnupg git git-lfs openssh-client \
-        unzip zip xz-utils bzip2 zstd file jq ripgrep fd-find less tree procps psmisc nano vim-tiny \
+        unzip zip xz-utils bzip2 zstd file jq ripgrep fd-find less tree procps psmisc nano vim-tiny         universal-ctags \
         build-essential gcc g++ gdb clang clang-format clang-tidy lld lldb \
         make cmake ninja-build meson pkg-config autoconf automake libtool ccache \
         libssl-dev zlib1g-dev \
@@ -54,6 +55,14 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack prepare pnpm@latest --activate \
     && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack prepare yarn@stable --activate \
     && pnpm --version && yarn --version
+
+# ast-grep, for searching code by its syntax tree rather than its text: the
+# calls of a method with a given shape, in Java, Kotlin and thirty other
+# languages. Beside ripgrep for text and ctags for definitions, it is how an
+# agent follows code through a checkout without reading whole files. Not in
+# Ubuntu's archive, so from npm, pinned.
+ARG AST_GREP_VERSION=0.51.0
+RUN npm install -g "@ast-grep/cli@${AST_GREP_VERSION}" && ast-grep --version
 
 ENV PATH=/opt/java/openjdk/bin:/opt/maven/bin:/opt/gradle/bin:$PATH \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
