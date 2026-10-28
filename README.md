@@ -177,6 +177,7 @@ Environment variables (or system properties: `ORKBOX_MAX_SESSIONS` ->
 | `ORKBOX_MAX_OUTPUT_BYTES` | `4194304` | Output kept per execution stream. |
 | `ORKBOX_KILL_GRACE_SECONDS` | `10` | Between SIGTERM and SIGKILL on timeout. |
 | `ORKBOX_MAX_PORTS` | `5` | Ports one session may have forwarded at once. |
+| `ORKBOX_SESSION_ENV` | — | Environment every session starts with, as `NAME=value` pairs separated by commas or new lines; a session's own `env` wins. For a package registry behind a firewall, e.g. `npm_config_registry=https://artifactory/api/npm/npm/,PIP_INDEX_URL=https://artifactory/api/pypi/pypi/simple`. |
 | `ORKBOX_DOCKER_BINARY` | `docker` | CLI to use, e.g. `podman`. |
 | `ORKBOX_DOCKER_DEFAULT_IMAGE` | `orknux/orkbox-toolchain:latest` | Image for sessions that don't name one. |
 | `ORKBOX_DOCKER_IMAGES` | `*` | Comma-separated allowlist of images. |

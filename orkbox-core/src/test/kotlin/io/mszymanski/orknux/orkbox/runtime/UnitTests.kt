@@ -175,3 +175,28 @@ class FileServiceHelpersTest {
         assertFalse(FileService.isUtf8(byteArrayOf(65, 0, 66)))
     }
 }
+
+class SessionEnvConfigTest {
+    @Test
+    fun `pairs are read by comma or line, and a value keeps its own equals signs`() {
+        val env = io.mszymanski.orknux.orkbox.Config.parseEnv(
+            "npm_config_registry=https://artifactory-1.atm/api/npm/npm/?a=b, PIP_INDEX_URL=https://x/simple\nEMPTY=",
+        )
+        assertEquals(
+            mapOf("npm_config_registry" to "https://artifactory-1.atm/api/npm/npm/?a=b", "PIP_INDEX_URL" to "https://x/simple", "EMPTY" to ""),
+            env,
+        )
+    }
+
+    @Test
+    fun `a pair with no name is refused`() {
+        assertFailsWith<IllegalArgumentException> { io.mszymanski.orknux.orkbox.Config.parseEnv("=value") }
+        assertFailsWith<IllegalArgumentException> { io.mszymanski.orknux.orkbox.Config.parseEnv("JUSTANAME") }
+    }
+
+    @Test
+    fun `the setting is read from ORKBOX_SESSION_ENV`() {
+        val config = io.mszymanski.orknux.orkbox.Config.load { if (it == "ORKBOX_SESSION_ENV") "A=1,B=2" else null }
+        assertEquals(mapOf("A" to "1", "B" to "2"), config.sessionEnv)
+    }
+}

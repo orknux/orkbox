@@ -36,6 +36,7 @@ abstract class SessionContract {
     /** argv running [script] in the runtime's shell. */
     abstract fun shellArgv(script: String): List<String>
     abstract val printEnvCommand: String
+    abstract val printConfiguredEnvCommand: String
     abstract val sleepCommand: String
     abstract val catCommand: String
 
@@ -218,6 +219,21 @@ abstract class SessionContract {
         orkbox.files.write(session, "cwd/marker.txt", "m".toByteArray(), null, null)
         val listing = run(ExecuteRequest(command = if (isLocalWindows()) "dir /b" else "ls", cwd = "cwd"))
         assertContains(listing.toDto(1000).stdout!!, "marker.txt")
+    }
+
+    @Test
+    fun `the configured session env reaches every command, and a request's own wins`() = runBlocking {
+        val configured = run(ExecuteRequest(command = printConfiguredEnvCommand))
+        assertEquals("from-config", configured.toDto(1000).stdout!!.trim())
+
+        val overridden = orkbox.sessions.create(createRequest().copy(env = mapOf("ORKBOX_CONFIGURED_VAR" to "from-session")))
+        try {
+            val execution = orkbox.sessions.execute(overridden, ExecuteRequest(command = printConfiguredEnvCommand))
+            assertTrue(orkbox.sessions.await(overridden, execution, 120), "execution did not finish")
+            assertEquals("from-session", execution.toDto(1000).stdout!!.trim())
+        } finally {
+            orkbox.sessions.stop(overridden, "test over")
+        }
     }
 
     @Test

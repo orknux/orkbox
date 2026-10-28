@@ -40,6 +40,13 @@ data class Config(
      * after a person approved it. `127.0.0.1` keeps them to this machine.
      */
     val publishHost: String = "0.0.0.0",
+    /**
+     * Environment every session starts with, under what a session asks for.
+     * Where an installation says once what every command should know - a
+     * package registry behind a firewall (`npm_config_registry`,
+     * `PIP_INDEX_URL`) - rather than every client saying it on every session.
+     */
+    val sessionEnv: Map<String, String> = emptyMap(),
 
     val docker: DockerConfig = DockerConfig(),
     val local: LocalConfig = LocalConfig(),
@@ -69,6 +76,7 @@ data class Config(
                 killGraceSeconds = long("ORKBOX_KILL_GRACE_SECONDS", 10),
                 maxPorts = int("ORKBOX_MAX_PORTS", 5),
                 publishHost = str("ORKBOX_PUBLISH_HOST") ?: "0.0.0.0",
+                sessionEnv = str("ORKBOX_SESSION_ENV")?.let(::parseEnv) ?: emptyMap(),
                 docker = DockerConfig(
                     binary = str("ORKBOX_DOCKER_BINARY") ?: "docker",
                     defaultImage = str("ORKBOX_DOCKER_DEFAULT_IMAGE") ?: DockerConfig.DEFAULT_IMAGE,
@@ -95,6 +103,18 @@ data class Config(
             config.validate()
             return config
         }
+
+        /**
+         * `NAME=value` pairs, separated by commas or new lines. A value runs to
+         * the next separator and may hold `=`, so a URL with a query is whole;
+         * a pair with no name is refused rather than dropped.
+         */
+        fun parseEnv(text: String): Map<String, String> =
+            text.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.associate { pair ->
+                val name = pair.substringBefore('=', "").trim()
+                require(name.isNotEmpty() && '=' in pair) { "ORKBOX_SESSION_ENV: '$pair' is not NAME=value" }
+                name to pair.substringAfter('=').trim()
+            }
 
         fun lookup(name: String): String? =
             System.getProperty(name.lowercase().replace('_', '.')) ?: System.getenv(name)

@@ -33,6 +33,7 @@ class LocalSessionTest : SessionContract() {
         defaultRuntime = Config.RUNTIME_LOCAL,
         killGraceSeconds = 2,
         local = LocalConfig(root = root),
+        sessionEnv = mapOf("ORKBOX_CONFIGURED_VAR" to "from-config"),
     )
 
     override fun createRequest() = CreateSessionRequest()
@@ -40,6 +41,7 @@ class LocalSessionTest : SessionContract() {
 
     override fun shellArgv(script: String) = if (windows) listOf("cmd.exe", "/d", "/s", "/c", script) else listOf("/bin/sh", "-c", script)
     override val printEnvCommand = if (windows) "echo %ORKBOX_TEST_VAR%" else "echo \"\$ORKBOX_TEST_VAR\""
+    override val printConfiguredEnvCommand = if (windows) "echo %ORKBOX_CONFIGURED_VAR%" else "echo \"\$ORKBOX_CONFIGURED_VAR\""
     override val sleepCommand = if (windows) "ping -n 60 127.0.0.1 >nul" else "sleep 60"
     override val catCommand = if (windows) "sort" else "cat"
 
@@ -135,6 +137,7 @@ class DockerSessionTest : SessionContract() {
         defaultRuntime = Config.RUNTIME_DOCKER,
         killGraceSeconds = 2,
         docker = DockerConfig(defaultImage = image, cleanupOnStart = false),
+        sessionEnv = mapOf("ORKBOX_CONFIGURED_VAR" to "from-config"),
     )
 
     override fun createRequest(): CreateSessionRequest {
@@ -145,6 +148,7 @@ class DockerSessionTest : SessionContract() {
 
     override fun shellArgv(script: String) = listOf("sh", "-c", script)
     override val printEnvCommand = "echo \"\$ORKBOX_TEST_VAR\""
+    override val printConfiguredEnvCommand = "echo \"\$ORKBOX_CONFIGURED_VAR\""
     override val sleepCommand = "sleep 60"
     override val catCommand = "cat"
 

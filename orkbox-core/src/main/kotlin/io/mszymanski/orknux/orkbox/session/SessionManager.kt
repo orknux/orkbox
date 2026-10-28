@@ -103,7 +103,7 @@ class SessionManager(
             id = Ids.session(),
             runtime = runtimeName,
             image = image,
-            env = request.env,
+            env = config.sessionEnv + request.env,
             resources = resources,
             network = network,
             caches = caches,
@@ -125,7 +125,7 @@ class SessionManager(
         val started = Instant.now()
         try {
             val sandbox = runtime.create(
-                SandboxSpec(session.id, image, request.env, resources, network == "full", caches),
+                SandboxSpec(session.id, image, session.env, resources, network == "full", caches),
             )
             session.sandbox = sandbox
             if (session.status != SessionStatus.CREATING) {
